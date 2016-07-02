@@ -1,0 +1,21 @@
+rc2104-Serial 
+   CS0 M1
+   CS1 = A7
+   !CS2 = A6
+   Maps 80 to BF
+
+rc2014-digital
+  G1 = M1
+  !G2B = IORQ
+  !G2A = A7
+  Maps to 00, 10, 20, 30, 40, 50, 60, 70   
+
+rc2014-rtc
+  G1 = M1
+  !G2A = IORQ
+  !G2B = GND
+  Y6 = RTC
+  Y7 = DIG OUT
+  RTC is on C0
+  DIG OUT is on E0
+  E0 to E3 map to 00, 20, 40, 60 
