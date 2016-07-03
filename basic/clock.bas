@@ -1,0 +1,40 @@
+10 LS=999
+20 GOSUB 1000
+30 if (LS = S) GOTO 100
+40 LS = S
+50 GOSUB 2000
+60 print T$
+100 GOTO 20
+
+1000 X=inp(&HC0)
+1010 S=(X and 15) + INT(X/16)
+1020 X=inp(&HC2)
+1030 M=(X and 15) + INT(X/16)
+1040 X=inp(&HC4)
+1050 H=(X and 15) + INT(X/16)
+1060 RETURN
+
+2000 T$=""
+2010 if (H>9) GOTO 2030
+2020 T$=T$+"0"
+2030 T$=T$+right$(str$(H),len(str$(H))-1)
+2040 T$=T$+":"
+2050 if (M>9) GOTO 2070
+2060 T$=T$+"0"
+2070 T$=T$+right$(str$(M),len(str$(M))-1)
+2080 T$=T$+":"
+2090 if (S>9) GOTO 2110
+2100 T$=T$+"0"
+2110 T$=T$+right$(str$(S),len(str$(S))-1)
+2120 RETURN
+
+3000 TS=INT(S/10)
+3010 OS=S-TS
+3020 OUT &HC0, TS*16 + OS
+3030 TM=INT(M/10)
+3040 OM=M-TM
+3050 OUT &HC2, TM*16 + OM
+3060 TH=INT(H/10)
+3070 OH=H-TH
+3080 OUT &HC4, TH*16 + OH
+3090 RETURN
