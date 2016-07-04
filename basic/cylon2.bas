@@ -1,3 +1,6 @@
+1 REM cylon demo program using RC2014 digital IO board
+2 REM buttons may be pressed to alter speed
+
 5 DL=150
 6 DN=150
 10 FOR F=0 TO 7
