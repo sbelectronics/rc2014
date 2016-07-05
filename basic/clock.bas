@@ -2,6 +2,9 @@
 2 REM by Scott Baker, http://www.smbaker.com/
 3 REM Demonstrates use of BQ4845 RTC on Z80 RC2014 computer
 
+5 REM set 24-hour mode
+6 OUT &HCE, 2
+
 10 LS=999
 20 GOSUB 1000
 30 if (LS = S) GOTO 100
@@ -19,7 +22,7 @@
 1020 X=inp(&HC2)
 1030 M=(X and 15) + INT(X/16)*10
 1040 X=inp(&HC4)
-1050 H=(X and 15) + INT(X/16)*10
+1050 H=(X and 15) + (INT(X/16) and 3)*10
 1060 RETURN
 
 1999 REM format H, M, S into a string T$
