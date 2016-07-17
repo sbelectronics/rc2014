@@ -95,13 +95,14 @@ class Supervisor:
                 break
         self.log("not busack is received")
 
-    def slow_clock(self):
+    def slow_clock(self, rate):
+        rate = (1.0/float(rate))/2.0
         self.ixControl.not_gpio(0, CLKEN)
         while True:
             self.ixControl.not_gpio(0, CLKOUT)
-            time.sleep(0.5)
+            time.sleep(rate)
             self.ixControl.or_gpio(0, CLKOUT)
-            time.sleep(0.5)
+            time.sleep(rate)
 
     def normal_clock(self):
         self.ixControl.or_gpio(0, CLKEN)
@@ -160,6 +161,8 @@ def main():
          help="value", metavar="VAL", type="int", default=0)
     parser.add_option("-P", "--ascii", dest="ascii",
          help="print ascii value", action="store_true", default=False)
+    parser.add_option("-R", "--rate", dest="rate",
+         help="rate for slow clock", metavar="HERTZ", type="int", default=10)
     parser.add_option("-v", "--verbose", dest="verbose",
          help="verbose", action="store_true", default=False)
 
@@ -209,6 +212,18 @@ def main():
         finally:
             super.release_bus()
 
+    elif (cmd=="iowatch"):
+        last=None
+        try:
+            super.take_bus()
+            while True:
+                x=super.io_read(options.addr)
+                if (x!=last):
+                    print "%02X" % x
+                    last=x
+        finally:
+            super.release_bus()
+
     elif (cmd=="iowrite"):
         try:
             super.take_bus()
@@ -218,7 +233,7 @@ def main():
 
     elif (cmd=="slowclock"):
         try:
-            super.slow_clock()
+            super.slow_clock(rate=options.rate)
         finally:
             super.normal_clock()
 
