@@ -1,0 +1,104 @@
+1 REM clock.bas
+2 REM by Scott Baker, http://www.smbaker.com/
+3 REM Demonstrates use of BQ4845 RTC and TIL311 FrontPanel Board
+
+5 REM set 24-hour mode
+6 OUT &HCE, 2
+
+10 LS=999
+20 MD=1
+30 CTR=0
+40 ADDR=0
+
+100 x=INP(4)
+110 if (x and 1)=1 THEN MD=1
+120 if (x and 2)=2 THEN CTR=0 : MD=2
+130 if (x and 4)=4 THEN ADDR=0 : MD=3
+140 if (x and 8)=8 THEN MD=4
+
+199 REM MD=1 is clock
+200 IF MD<>1 GOTO 300
+210 GOSUB 1000
+215 D=0
+220 if (LS = S) GOTO 100
+230 LS = S
+240 GOSUB 2000
+250 GOTO 100
+
+299 REM MD=2 is counter
+300 IF MD<>2 GOTO 400
+310 I=CTR
+320 J=0
+330 GOSUB 2200
+340 CTR=CTR+1
+350 GOTO 100
+
+399 REM MD=3 is dump
+400 IF MD<>3 GOTO 500
+410 J=ADDR
+420 I=PEEK(ADDR)
+430 GOSUB 2300
+440 ADDR=ADDR+1
+450 GOTO 100
+
+399 REM MD=4 is feedface
+500 IF MD<>4 GOTO 600
+510 OUT 0, &HFE
+520 OUT 1, &HED
+530 OUT 2, &HFA
+540 OUT 3, &HCE
+550 GOTO 100
+
+600 GOTO 100
+
+998 REM read the current time from the RTC
+999 REM store it in the variables H, M, S.
+1000 X=inp(&HC0)
+1010 S=(X and 15) + INT(X/16)*10
+1020 X=inp(&HC2)
+1030 M=(X and 15) + INT(X/16)*10
+1040 X=inp(&HC4)
+1050 H=(X and 15) + (INT(X/16) and 3)*10
+1060 RETURN
+
+1999 REM print (D, H, M, S) on front panel
+2000 TS=INT(S/10)
+2010 OS=S-(TS*10)
+2020 OUT &H03, TS*16 + OS
+2030 TM=INT(M/10)
+2040 OM=M-(TM*10)
+2050 OUT &H02, TM*16 + OM
+2060 TH=INT(H/10)
+2070 OH=H-(TH*10)
+2080 OUT &H01, TH*16 + OH
+2090 TD=INT(D/10)
+2100 OD=D-(TD*10)
+2100 OUT &H00, TD*16 + OD
+2110 RETURN
+
+2199 REM print 16-bit integers (J,I) on front panel in decimal
+2200 D=INT(J/100)
+2210 H=J-(D*100)
+2220 M=INT(I/100)
+2230 S=I-(M*100)
+2240 GOSUB 2000
+2250 RETURN
+
+2299 REM print 16-bit integers (J,I) on front panel in hex
+2300 OUT 0, INT(J/256)
+2310 OUT 1, J-INT(J/256)*256
+2320 OUT 2, INT(I/256)
+2330 OUT 3, I-INT(I/256)*256
+2340 RETURN
+
+2999 REM set the clock using H, M, S
+3000 TS=INT(S/10)
+3010 OS=S-(TS*10)
+3020 OUT &HC0, TS*16 + OS
+3030 TM=INT(M/10)
+3040 OM=M-(TM*10)
+3050 OUT &HC2, TM*16 + OM
+3060 TH=INT(H/10)
+3070 OH=H-(TH*10)
+3080 OUT &HC4, TH*16 + OH
+3090 RETURN
