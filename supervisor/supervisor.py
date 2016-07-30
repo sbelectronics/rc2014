@@ -83,10 +83,16 @@ class Supervisor:
         self.ixData.set_iodir(1, M1 | CLK | INT | BUSACK)
         self.ixData.set_gpio(1, MREQ | WR | RD | IORQ)
 
-    def release_bus(self):
+    def release_bus(self, reset=False):
         self.ixAddress.set_iodir(0,0xFF)
         self.ixAddress.set_iodir(1,0xFF)
         self.ixData.set_iodir(1, 0xFF)
+
+        if reset:
+            self.ixControl.not_gpio(0,RESET)
+            self.delay()
+            self.ixControl.or_gpio(0, RESET)
+
         self.ixControl.or_gpio(0,BUSREQ)
         self.log("wait for not busack")
         while True:
@@ -283,6 +289,10 @@ def main():
          help="verbose", action="store_true", default=False)
     parser.add_option("-f", "--filename", dest="filename",
          help="filename", default=None)
+    parser.add_option("-r", "--reset", dest="reset_on_release",
+         help="reset on release of bus", default=False)
+    parser.add_option("-n", "--norelease", dest="norelease",
+         help="do not release bus", default=False)
 
     #parser.disable_interspersed_args()
 
@@ -307,7 +317,8 @@ def main():
                 else:
                     print "%04X %02X" % (i, val)
         finally:
-            super.release_bus()
+            if not options.norelease:
+                super.release_bus()
 
     elif (cmd=="savehex"):
         hexdumper = HexFile(options.addr)
@@ -317,7 +328,8 @@ def main():
                 val = super.mem_read(i)
                 hexdumper.write(val)
         finally:
-            super.release_bus()
+            if not options.norelease:
+                super.release_bus()
 
         if options.filename:
             file(options.filename,"w").write(hexdumper.to_str())
@@ -344,7 +356,8 @@ def main():
                 super.mem_write(offset, val)
                 offset = offset + 1
         finally:
-            super.release_bus()
+            if not options.norelease:
+                super.release_bus(reset=options.reset_on_release)
 
 
     elif (cmd=="peek"):
@@ -352,21 +365,24 @@ def main():
             super.take_bus()
             print "%02X" % super.mem_read(options.addr)
         finally:
-            super.release_bus()
+            if not options.norelease:
+                super.release_bus()
 
     elif (cmd=="poke"):
         try:
             super.take_bus()
             super.mem_write(options.addr, options.value)
         finally:
-            super.release_bus()
+            if not options.norelease:
+                super.release_bus()
 
     elif (cmd=="ioread"):
         try:
             super.take_bus()
             print "%02X" % super.io_read(options.addr)
         finally:
-            super.release_bus()
+            if not options.norelease:
+                super.release_bus()
 
     elif (cmd=="iowatch"):
         last=None
@@ -378,14 +394,16 @@ def main():
                     print "%02X" % x
                     last=x
         finally:
-            super.release_bus()
+            if not options.norelease:
+                super.release_bus()
 
     elif (cmd=="iowrite"):
         try:
             super.take_bus()
             super.io_write(options.addr, options.value)
         finally:
-            super.release_bus()
+            if not options.norelease:
+                super.release_bus()
 
     elif (cmd=="slowclock"):
         try:
@@ -439,6 +457,15 @@ def main():
             super.autostep(rate=options.rate)
         finally:
             super.normal_clock()
+
+    elif (cmd=="showint"):
+        last=None
+        while True:
+            v = ((super.ixData.get_gpio(1)&INT) !=0)
+            if v!=last:
+                print v
+                last=v
+
 
 if __name__=="__main__":
     main()
