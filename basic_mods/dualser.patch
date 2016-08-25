@@ -1,5 +1,5 @@
 --- ../basic_work/basic32/bas32K.asm	2013-09-10 14:01:38.000000000 -0700
-+++ ../basic_work/scbasic/bas32K.asm	2016-08-18 15:57:46.000000000 -0700
++++ ../basic_work/scbasic/bas32k.asm	2016-08-24 16:06:04.000000000 -0700
 @@ -19,6 +19,16 @@
  ; Adapted for the freeware Zilog Macro Assembler 2.10 to produce
  ; the original ROM code (checksum A934H). PA
@@ -26,16 +26,17 @@
  USR     .EQU    WRKSPC+3H           ; "USR (x)" jump
  OUTSUB  .EQU    WRKSPC+6H           ; "OUT p,n"
  OTPORT  .EQU    WRKSPC+7H           ; Port (p)
-@@ -126,7 +136,7 @@
+@@ -126,7 +136,8 @@
  HX      .EQU    26H             ; HEX error
  BN      .EQU    28H             ; BIN error
  
 -        .ORG    00150H
-+        .ORG    00220H
++        .ORG    0               ; necessary for zasm
++        .ORG    00290H
  
  COLD:   JP      STARTB          ; Jump for cold start
  WARM:   JP      WARMST          ; Jump for warm start
-@@ -246,6 +256,8 @@
+@@ -246,6 +257,8 @@
          .WORD   ATN
          .WORD   PEEK
          .WORD   DEEK
@@ -44,7 +45,7 @@
          .WORD   POINT
          .WORD   LEN
          .WORD   STR
-@@ -296,6 +308,8 @@
+@@ -296,6 +309,8 @@
          .BYTE   'C'+80H,"LEAR"
          .BYTE   'C'+80H,"LOAD"
          .BYTE   'C'+80H,"SAVE"
@@ -53,7 +54,7 @@
          .BYTE   'N'+80H,"EW"
  
          .BYTE   'T'+80H,"AB("
-@@ -334,6 +348,8 @@
+@@ -334,6 +349,8 @@
          .BYTE   'A'+80H,"TN"
          .BYTE   'P'+80H,"EEK"
          .BYTE   'D'+80H,"EEK"
@@ -62,7 +63,7 @@
          .BYTE   'P'+80H,"OINT"
          .BYTE   'L'+80H,"EN"
          .BYTE   'S'+80H,"TR$"
-@@ -385,6 +401,8 @@
+@@ -385,6 +402,8 @@
          .WORD   CLEAR
          .WORD   REM
          .WORD   REM
@@ -71,7 +72,7 @@
          .WORD   NEW
  
  ; RESERVED WORD TOKEN VALUES
-@@ -396,27 +414,27 @@
+@@ -396,27 +415,27 @@
  ZGOSUB  .EQU    08CH            ; GOSUB
  ZREM    .EQU    08EH            ; REM
  ZPRINT  .EQU    09EH            ; PRINT
@@ -119,7 +120,7 @@
  
  ; ARITHMETIC PRECEDENCE TABLE
  
-@@ -1249,8 +1267,10 @@
+@@ -1249,8 +1268,10 @@
          RET
  
  
@@ -131,7 +132,7 @@
          RST     10H             ; Get the key into A
          CP      ESC             ; Escape key?
          JR      Z,BRK           ; Yes, break
-@@ -1260,7 +1280,8 @@
+@@ -1260,7 +1281,8 @@
          RET     NZ              ; Other key, ignore
  
  
@@ -141,7 +142,7 @@
          CP      CTRLQ           ; Resume scrolling?
          RET      Z              ; Release the chokehold
          CP      CTRLC           ; Second break?
-@@ -2963,6 +2984,38 @@
+@@ -2963,6 +2985,38 @@
          CALL    INPSUB          ; Get input from port
          JP      PASSA           ; Return integer A
  
@@ -180,7 +181,7 @@
  POUT:   CALL    SETIO           ; Set up port number
          JP      OUTSUB          ; Output data and return
  
-@@ -4255,7 +4308,7 @@
+@@ -4255,7 +4309,7 @@
          RL      D
          JR      NC,ZEROSUP
          JR      BITOUT2
@@ -189,7 +190,330 @@
          RL      E
          RL      D               ; Top bit now in carry
  BITOUT2:
-@@ -4316,7 +4369,7 @@
+@@ -4316,7 +4370,7 @@
+         JP      $0008           ; output a char
+ 
+ 
+-MONITR: 
++MONITR:
+         JP      $0000           ; Restart (Normally Monitor Start)
+ 
+ 
+--- ../basic_work/basic32/bas32K.asm	2013-09-10 14:01:38.000000000 -0700
++++ ../basic_work/scbasic/basdisk.asm	2016-08-24 18:10:02.000000000 -0700
+@@ -19,6 +19,16 @@
+ ; Adapted for the freeware Zilog Macro Assembler 2.10 to produce
+ ; the original ROM code (checksum A934H). PA
+ 
++; Modified by smbaker@smbaker.com:
++;    Added two new functions and one new statement:
++;       RSER(ser_num) - check for serial port read readiness (0 = not ready,
++;                       nonzero = ready)
++;       ISER(ser_num) - read byte from serial port
++;       OSER ser_num,value - write byte to serial port
++;       BAUD ser_num,value - set baud rate (1=1200,2=2400,9=9600,19=19200,115=115200)
++;    Valid ser_num is 0 or 1. RSER doesn't work on port 0, as basic will clear
++;    the input buffer looking for CTRL-C.
++
+ ; GENERAL EQUATES
+ 
+ CTRLC   .EQU    03H             ; Control "C"
+@@ -37,7 +47,9 @@
+ 
+ ; BASIC WORK SPACE LOCATIONS
+ 
+-WRKSPC  .EQU    8045H             ; BASIC Work space
++DISKBUF .EQU    8095H               ; Disk Buffer
++
++WRKSPC  .EQU    DISKBUF+512         ; BASIC Work space
+ USR     .EQU    WRKSPC+3H           ; "USR (x)" jump
+ OUTSUB  .EQU    WRKSPC+6H           ; "OUT p,n"
+ OTPORT  .EQU    WRKSPC+7H           ; Port (p)
+@@ -126,7 +138,17 @@
+ HX      .EQU    26H             ; HEX error
+ BN      .EQU    28H             ; BIN error
+ 
+-        .ORG    00150H
++I0      .EQU    $E0
++I1      .EQU    I0+1
++I2      .EQU    I0+2
++I3      .EQU    I0+3
++I4      .EQU    I0+4
++I5      .EQU    I0+5
++I6      .EQU    I0+6
++I7      .EQU    I0+7
++
++        .ORG    0               ; necessary for zasm
++        .ORG    00290H
+ 
+ COLD:   JP      STARTB          ; Jump for cold start
+ WARM:   JP      WARMST          ; Jump for warm start
+@@ -246,6 +268,8 @@
+         .WORD   ATN
+         .WORD   PEEK
+         .WORD   DEEK
++        .WORD   ISER
++        .WORD   RSER
+         .WORD   POINT
+         .WORD   LEN
+         .WORD   STR
+@@ -296,6 +320,11 @@
+         .BYTE   'C'+80H,"LEAR"
+         .BYTE   'C'+80H,"LOAD"
+         .BYTE   'C'+80H,"SAVE"
++        .BYTE   'O'+80H,"SER"
++        .BYTE   'B'+80H,"AUD"
++        .BYTE   'D'+80H,"READ"
++        .BYTE   'D'+80H,"WRITE"
++        .BYTE   'D'+80H,"INIT"
+         .BYTE   'N'+80H,"EW"
+ 
+         .BYTE   'T'+80H,"AB("
+@@ -334,6 +363,8 @@
+         .BYTE   'A'+80H,"TN"
+         .BYTE   'P'+80H,"EEK"
+         .BYTE   'D'+80H,"EEK"
++        .BYTE   'I'+80H,"SER"
++        .BYTE   'R'+80H,"SER"
+         .BYTE   'P'+80H,"OINT"
+         .BYTE   'L'+80H,"EN"
+         .BYTE   'S'+80H,"TR$"
+@@ -385,6 +416,11 @@
+         .WORD   CLEAR
+         .WORD   REM
+         .WORD   REM
++        .WORD   OSER
++        .WORD   BAUD
++        .WORD   DREAD
++        .WORD   DWRITE
++        .WORD   DINIT
+         .WORD   NEW
+ 
+ ; RESERVED WORD TOKEN VALUES
+@@ -396,27 +432,27 @@
+ ZGOSUB  .EQU    08CH            ; GOSUB
+ ZREM    .EQU    08EH            ; REM
+ ZPRINT  .EQU    09EH            ; PRINT
+-ZNEW    .EQU    0A4H            ; NEW
++ZNEW    .EQU    0A9H            ; NEW
+ 
+-ZTAB    .EQU    0A5H            ; TAB
+-ZTO     .EQU    0A6H            ; TO
+-ZFN     .EQU    0A7H            ; FN
+-ZSPC    .EQU    0A8H            ; SPC
+-ZTHEN   .EQU    0A9H            ; THEN
+-ZNOT    .EQU    0AAH            ; NOT
+-ZSTEP   .EQU    0ABH            ; STEP
+-
+-ZPLUS   .EQU    0ACH            ; +
+-ZMINUS  .EQU    0ADH            ; -
+-ZTIMES  .EQU    0AEH            ; *
+-ZDIV    .EQU    0AFH            ; /
+-ZOR     .EQU    0B2H            ; OR
+-ZGTR    .EQU    0B3H            ; >
+-ZEQUAL  .EQU    0B4H            ; M
+-ZLTH    .EQU    0B5H            ; <
+-ZSGN    .EQU    0B6H            ; SGN
+-ZPOINT  .EQU    0C7H            ; POINT
+-ZLEFT   .EQU    0CDH +2         ; LEFT$
++ZTAB    .EQU    0AAH            ; TAB
++ZTO     .EQU    0ABH            ; TO
++ZFN     .EQU    0ACH            ; FN
++ZSPC    .EQU    0ADH            ; SPC
++ZTHEN   .EQU    0AEH            ; THEN
++ZNOT    .EQU    0AFH            ; NOT
++ZSTEP   .EQU    0B0H            ; STEP
++
++ZPLUS   .EQU    0B1H            ; +
++ZMINUS  .EQU    0B2H            ; -
++ZTIMES  .EQU    0B3H            ; *
++ZDIV    .EQU    0B4H            ; /
++ZOR     .EQU    0B7H            ; OR
++ZGTR    .EQU    0B8H            ; >
++ZEQUAL  .EQU    0B9H            ; M
++ZLTH    .EQU    0BAH            ; <
++ZSGN    .EQU    0BBH            ; SGN
++ZPOINT  .EQU    0CEH            ; POINT
++ZLEFT   .EQU    0D4H +2         ; LEFT$
+ 
+ ; ARITHMETIC PRECEDENCE TABLE
+ 
+@@ -1249,8 +1285,10 @@
+         RET
+ 
+ 
+-TSTBRK: RST     18H             ; Check input status
++TSTBRK: LD      A, 0
++        RST     18H             ; Check input status
+         RET     Z               ; No key, go back
++        LD      A, 0
+         RST     10H             ; Get the key into A
+         CP      ESC             ; Escape key?
+         JR      Z,BRK           ; Yes, break
+@@ -1260,7 +1298,8 @@
+         RET     NZ              ; Other key, ignore
+ 
+ 
+-STALL:  RST     10H             ; Wait for key
++STALL:  LD      A, 0
++        RST     10H             ; Wait for key
+         CP      CTRLQ           ; Resume scrolling?
+         RET      Z              ; Release the chokehold
+         CP      CTRLC           ; Second break?
+@@ -2963,6 +3002,143 @@
+         CALL    INPSUB          ; Get input from port
+         JP      PASSA           ; Return integer A
+ 
++        ; ISER - input char from serial port
++ISER:   CALL    MAKINT          ; pass port number in A, 0=A, 1=B
++        RST     10H             ; call read-from-port-0
++        JP      PASSA           ; Return integer A
++
++        ; RSER - get number of bytes in serial port read buffer
++RSER:   CALL    MAKINT          ; pass port number in A, 0=A, 1=B
++        RST     18H             ; Call get bytes in buffer on port 0
++        JP      PASSA
++
++        ; OSER - output char to serial port
++OSER:   CALL    GETINT          ; get port number
++        CP      1
++        JR      Z, OSER1
++        CALL    CHKSYN          ; Make sure ',' follows
++        .BYTE      ','
++        CALL    GETINT          ; Put integer in A
++        RST     08H             ; Call write-to-port-0
++        RET
++OSER1:  CALL    CHKSYN          ; Make sure ',' follows
++        .BYTE      ','
++        CALL    GETINT          ; Put integer in A
++        RST     20H             ; Call write-to-port-1
++        RET
++
++BAUD:   CALL    GETINT          ; get port number and throw it away
++        CALL    CHKSYN          ; Make sure ',' follows
++        .BYTE      ','
++        CALL    GETINT          ; Put integer in A
++        RST     28H             ; Call set baud
++        RET
++
++SETLBA: CALL    GETINT          ; get sector number
++        OUT     I3, A           ; lba 0..7
++        LD      A, 0
++        OUT     I4, A           ; lba 8..15
++        LD      A, 0
++        OUT     I5, A           ; lba 16..23
++        LD      A, $E0
++        OUT     I6, A           ; lba 23..27
++        LD      A, 1            ; number of sectors
++        OUT     I2, A
++        RET
++
++WAITRDY:
++        PUSH    AF
++WAITRDYLP:
++        in 	A,(I7)
++        AND 	0C0H    ; 40=Ready, 80=Busy
++        cp 	040H
++        JR	NZ, WAITRDYLP
++        POP 	AF
++        RET
++
++WAITDRQ:
++        PUSH    AF
++WAITDRQLP:
++        in 	A,(I7)
++        AND 	08H
++        cp 	08H
++        JR	NZ, WAITDRQLP
++        POP 	AF
++        RET
++
++DREAD:
++        CALL    WAITRDY
++        CALL    SETLBA
++        LD      A, $20
++        OUT     (I7), A        ; read command
++        CALL    WAITDRQ
++
++rd4Sec:
++        PUSH    HL
++        LD      c,4
++	LD      HL,DISKBUF
++rdSec:
++	LD 	b,128
++rdByte:
++	IN 	A,(I0)
++	LD 	(HL),A
++	iNC 	HL
++	dec 	b
++	JR 	NZ, rdByte
++	dec 	c
++	JR 	NZ, rdSec
++	POP 	HL
++        RET
++
++DWRITE:
++        CALL    WAITRDY
++        CALL    SETLBA
++        LD      A, $30
++        OUT     (I7), A       ; write command
++        CALL    WAITDRQ
++
++        PUSH    HL
++        LD      c,4
++        LD      HL,DISKBUF
++wrSec:
++	LD 	b,128
++wrByte:
++	LD 	A,(HL)
++	OUT 	(I0),A
++	iNC 	HL
++	dec 	b
++	JR 	NZ, wrByte
++	dec 	c
++	JR 	NZ, wrSec
++        POP     HL
++        RET
++
++DINIT:
++        CALL    WAITRDY
++        LD      A,1
++        OUT     I1, A           ; 8-bit mode
++        LD      A, $EF
++        OUT     I7, A           ; execute command
++        LD      A, $82
++
++        CALL    WAITRDY
++
++        OUT     I1, A           ; turn of write cache
++        LD      A, $EF
++        OUT     I7, A           ; execute command
++
++        CALL    WAITRDY
++
++        LD      A, $E0          ; master
++        OUT     I6, A
++        LD      A, $EC          ; get disk id
++        OUT     I7, A
++
++        CALL    WAITDRQ
++
++        ; rd4Sec will return to caller
++        JP      rd4Sec
++
+ POUT:   CALL    SETIO           ; Set up port number
+         JP      OUTSUB          ; Output data and return
+ 
+@@ -4255,7 +4431,7 @@
+         RL      D
+         JR      NC,ZEROSUP
+         JR      BITOUT2
+-BITOUT:      
++BITOUT:
+         RL      E
+         RL      D               ; Top bit now in carry
+ BITOUT2:
+@@ -4316,7 +4492,7 @@
          JP      $0008           ; output a char
  
  
@@ -199,8 +523,8 @@
  
  
 --- ../basic_work/basic32/int32K.asm	2013-09-10 23:04:20.000000000 -0700
-+++ ../basic_work/scbasic/int32K.asm	2016-08-18 17:04:16.000000000 -0700
-@@ -21,15 +21,29 @@
++++ ../basic_work/scbasic/int32k.asm	2016-08-19 16:31:28.000000000 -0700
+@@ -21,15 +21,31 @@
  SER_FULLSIZE    .EQU     30H
  SER_EMPTYSIZE   .EQU     5
  
@@ -216,6 +540,8 @@
 +; Port B use divide by 1 drive from CTC outputting actual baud rate
 +RTS_HIGH_B      .EQU     0D4H
 +RTS_LOW_B       .EQU     094H
++
++SER_RESET       .EQU     03H
  
  serBuf          .EQU     $8000
  serInPtr        .EQU     serBuf+SER_BUFSIZE
@@ -234,7 +560,7 @@
  
  CR              .EQU     0DH
  LF              .EQU     0AH
-@@ -49,30 +63,49 @@
+@@ -49,30 +65,49 @@
  RST08            JP      TXA
  
  ;------------------------------------------------------------------------------
@@ -287,7 +613,7 @@
  
                  IN       A,($81)
                  PUSH     AF
-@@ -80,7 +113,7 @@
+@@ -80,7 +115,7 @@
                  CP       SER_BUFSIZE     ; If full then ignore
                  JR       NZ,notFull
                  POP      AF
@@ -296,7 +622,7 @@
  
  notFull:        LD       HL,(serInPtr)
                  INC      HL
-@@ -95,9 +128,42 @@
+@@ -95,9 +130,42 @@
                  INC      A
                  LD       (serBufUsed),A
                  CP       SER_FULLSIZE
@@ -341,7 +667,7 @@
  rts0:           POP      HL
                  POP      AF
                  EI
-@@ -105,6 +171,8 @@
+@@ -105,6 +173,8 @@
  
  ;------------------------------------------------------------------------------
  RXA:
@@ -350,7 +676,7 @@
  waitForChar:    LD       A,(serBufUsed)
                  CP       $00
                  JR       Z, waitForChar
-@@ -122,7 +190,7 @@
+@@ -122,7 +192,7 @@
                  LD       (serBufUsed),A
                  CP       SER_EMPTYSIZE
                  JR       NC,rts1
@@ -359,7 +685,7 @@
                  OUT      ($80),A
  rts1:
                  LD       A,(HL)
-@@ -131,16 +199,54 @@
+@@ -131,16 +201,54 @@
                  RET                      ; Char ready in A
  
  ;------------------------------------------------------------------------------
@@ -417,7 +743,7 @@
                  CP       $0
                  RET
  
-@@ -151,17 +257,75 @@
+@@ -151,17 +259,83 @@
                  INC      HL              ; Next Character
                  JR       PRINT           ; Continue until $00
                  RET
@@ -471,8 +797,9 @@
 +NOT115200:      RET
 +
  ;------------------------------------------------------------------------------
- INIT:
-                LD        HL,TEMPSTACK    ; Temp stack
+-INIT:
+-               LD        HL,TEMPSTACK    ; Temp stack
++INIT:          LD        HL,TEMPSTACK    ; Temp stack
                 LD        SP,HL           ; Set up a temporary stack
 +               ; initialize first serial port
                 LD        HL,serBuf
@@ -481,20 +808,29 @@
                 XOR       A               ;0 to accumulator
                 LD        (serBufUsed),A
 -               LD        A,RTS_LOW
++               LD        A, SER_RESET
++               OUT       ($80),A
 +               LD        A,RTS_LOW_A
                 OUT       ($80),A         ; Initialise ACIA
++               ; baud generator for 2nd serial port, default to 115200
++               LD       A, 05H
++               OUT      (CTC_PORTB), A  ; 115200
++               LD       A, 4
++               OUT      (CTC_PORTB), A
 +               ; initialize second serial port
 +               LD        HL,ser2Buf
 +               LD        (ser2InPtr),HL
 +               LD        (ser2RdPtr),HL
 +               XOR       A               ;0 to accumulator
 +               LD        (ser2BufUsed),A
++               LD        A, SER_RESET
++               OUT       ($82),A
 +               LD        A, RTS_LOW_B
 +               OUT       ($82), A         ; Initialise ACIA
                 IM        1
                 EI
                 LD        HL,SIGNON1      ; Sign-on message
-@@ -172,6 +336,7 @@
+@@ -172,6 +346,7 @@
                 LD        HL,SIGNON2      ; Cold/warm message
                 CALL      PRINT           ; Output string
  CORW:
@@ -502,21 +838,482 @@
                 CALL      RXA
                 AND       %11011111       ; lower to uppercase
                 CP        'C'
-@@ -183,7 +348,7 @@
+@@ -183,7 +358,7 @@
                 RST       08H
  COLDSTART:     LD        A,'Y'           ; Set the BASIC STARTED flag
                 LD        (basicStarted),A
 -               JP        $0150           ; Start BASIC COLD
-+               JP        $0220           ; Start BASIC COLD
++               JP        $0290           ; Start BASIC COLD
  CHECKWARM:
                 CP        'W'
                 JR        NZ, CORW
-@@ -192,7 +357,7 @@
+@@ -192,11 +367,11 @@
                 RST       08H
                 LD        A,$0A
                 RST       08H
 -               JP        $0153           ; Start BASIC WARM
-+               JP        $0223           ; Start BASIC WARM
-               
+-              
++               JP        $0293           ; Start BASIC WARM
++
  SIGNON1:       .BYTE     CS
                 .BYTE     "Z80 SBC By Grant Searle",CR,LF,0
+ SIGNON2:       .BYTE     CR,LF
+                .BYTE     "Cold or warm start (C or W)? ",0
+-              
++
+ .END
+--- ../basic_work/basic32/int32K.asm	2013-09-10 23:04:20.000000000 -0700
++++ ../basic_work/scbasic/intsio.asm	2016-08-24 12:20:20.000000000 -0700
+@@ -21,15 +21,33 @@
+ SER_FULLSIZE    .EQU     30H
+ SER_EMPTYSIZE   .EQU     5
+ 
+-RTS_HIGH        .EQU     0D6H
+-RTS_LOW         .EQU     096H
++; Address of CTC for PORT B serial for setting baud rates
++CTC_PORTB       .EQU     51H
++
++SIOA_D          .EQU     $80
++SIOA_C          .EQU     $82
++SIOB_D          .EQU     $81
++SIOB_C          .EQU     $83
++
++RTS_HIGH        .EQU    0E8H
++RTS_LOW         .EQU    0EAH
+ 
+ serBuf          .EQU     $8000
+ serInPtr        .EQU     serBuf+SER_BUFSIZE
+ serRdPtr        .EQU     serInPtr+2
+ serBufUsed      .EQU     serRdPtr+2
+-basicStarted    .EQU     serBufUsed+1
+-TEMPSTACK       .EQU     $80ED ; Top of BASIC line input buffer so is "free ram" when BASIC resets
++
++serInMask       .EQU     serInPtr&$FF
++
++ser2Buf         .EQU     $8050
++ser2InPtr       .EQU     ser2Buf+SER_BUFSIZE
++ser2RdPtr       .EQU     ser2InPtr+2
++ser2BufUsed     .EQU     ser2RdPtr+2
++
++ser2InMask      .EQU     ser2InPtr&$FF
++
++basicStarted    .EQU     ser2BufUsed+1
++TEMPSTACK       .EQU     $813D ; 80ED ; Top of BASIC line input buffer so is "free ram" when BASIC resets
+ 
+ CR              .EQU     0DH
+ LF              .EQU     0AH
+@@ -49,43 +67,63 @@
+ RST08            JP      TXA
+ 
+ ;------------------------------------------------------------------------------
+-; RX a character over RS232 Channel A [Console], hold here until char ready.
++; RX a character over RS232 Channel, hold here until char ready.
++; Reg A = 0 for port A, 1 for port B
+ 
+                 .ORG 0010H
+ RST10            JP      RXA
+ 
+ ;------------------------------------------------------------------------------
+ ; Check serial status
++; Reg A = 0 for port A, 1 for port B
+ 
+                 .ORG 0018H
+ RST18            JP      CKINCHAR
++
++;------------------------------------------------------------------------------
++; TX a character over RS232 Channel B [Console]
++                .ORG 0020H
++RST20            JP      TXB
++
++;------------------------------------------------------------------------------
++; Set Baud rate
++                .ORG 0028H
++RST28            JP      SETBAUDB
++
++;------------------------------------------------------------------------------
++; Check serial status on port B
++
++;                .ORG 0030H
++;RST30            JP      CKINCHARB
+ 
+ ;------------------------------------------------------------------------------
+ ; RST 38 - INTERRUPT VECTOR [ for IM 1 ]
+ 
+                 .ORG     0038H
+-RST38            JR      serialInt       
++RST38            JR      serialInt
+ 
+ ;------------------------------------------------------------------------------
+ serialInt:      PUSH     AF
+                 PUSH     HL
+ 
+-                IN       A,($80)
+-                AND      $01             ; Check if interupt due to read buffer full
+-                JR       Z,rts0          ; if not, ignore
++                SUB      A
++                OUT      (SIOA_C),A
++                IN       A, (SIOA_C)
++                RRCA
++                JR       NC, check2
+ 
+-                IN       A,($81)
++                IN       A,(SIOA_D)
+                 PUSH     AF
+                 LD       A,(serBufUsed)
+                 CP       SER_BUFSIZE     ; If full then ignore
+                 JR       NZ,notFull
+                 POP      AF
+-                JR       rts0
++                JR       check2
+ 
+ notFull:        LD       HL,(serInPtr)
+                 INC      HL
+                 LD       A,L             ; Only need to check low byte becasuse buffer<256 bytes
+-                CP       (serBuf+SER_BUFSIZE) & $FF
++                CP       serInMask
+                 JR       NZ, notWrap
+                 LD       HL,serBuf
+ notWrap:        LD       (serInPtr),HL
+@@ -95,9 +133,49 @@
+                 INC      A
+                 LD       (serBufUsed),A
+                 CP       SER_FULLSIZE
++                JR       C,check2
++                ; set rts high
++                LD       A, $05
++                OUT      (SIOA_C),A
++                LD       A,RTS_HIGH
++                OUT      (SIOA_C),A
++
++; port 2
++
++check2:         SUB      A
++                OUT      (SIOB_C),A
++                IN       A, (SIOB_C)
++                RRCA
++                JR       NC, rts0
++
++                IN       A,(SIOB_D)
++                PUSH     AF
++                LD       A,(ser2BufUsed)
++                CP       SER_BUFSIZE     ; If full then ignore
++                JR       NZ,notFull2
++                POP      AF
++                JR       rts0
++
++notFull2:       LD       HL,(ser2InPtr)
++                INC      HL
++                LD       A,L             ; Only need to check low byte becasuse buffer<256 bytes
++                CP       ser2InMask
++                JR       NZ, notWrap2
++                LD       HL,ser2Buf
++notWrap2:       LD       (ser2InPtr),HL
++                POP      AF
++                LD       (HL),A
++                LD       A,(ser2BufUsed)
++                INC      A
++                LD       (ser2BufUsed),A
++                CP       SER_FULLSIZE
+                 JR       C,rts0
++                ; set rts high
++                LD       A, $05
++                OUT      (SIOB_C),A
+                 LD       A,RTS_HIGH
+-                OUT      ($80),A
++                OUT      (SIOB_C),A
++
+ rts0:           POP      HL
+                 POP      AF
+                 EI
+@@ -105,6 +183,8 @@
+ 
+ ;------------------------------------------------------------------------------
+ RXA:
++                CP      1               ; is A==1 ?
++                JR      Z, RXB
+ waitForChar:    LD       A,(serBufUsed)
+                 CP       $00
+                 JR       Z, waitForChar
+@@ -112,7 +192,7 @@
+                 LD       HL,(serRdPtr)
+                 INC      HL
+                 LD       A,L             ; Only need to check low byte becasuse buffer<256 bytes
+-                CP       (serBuf+SER_BUFSIZE) & $FF
++                CP       serInMask
+                 JR       NZ, notRdWrap
+                 LD       HL,serBuf
+ notRdWrap:      DI
+@@ -122,8 +202,11 @@
+                 LD       (serBufUsed),A
+                 CP       SER_EMPTYSIZE
+                 JR       NC,rts1
++                ; set rts low
++                LD       A, $05
++                OUT      (SIOA_C),A
+                 LD       A,RTS_LOW
+-                OUT      ($80),A
++                OUT      (SIOA_C),A
+ rts1:
+                 LD       A,(HL)
+                 EI
+@@ -131,16 +214,63 @@
+                 RET                      ; Char ready in A
+ 
+ ;------------------------------------------------------------------------------
++RXB:
++waitForChar2:   LD       A,(ser2BufUsed)
++                CP       $00
++                JR       Z, waitForChar2
++                PUSH     HL
++                LD       HL,(ser2RdPtr)
++                INC      HL
++                LD       A,L             ; Only need to check low byte becasuse buffer<256 bytes
++                CP       ser2InMask
++                JR       NZ, notRdWrap2
++                LD       HL,ser2Buf
++notRdWrap2:     DI
++                LD       (ser2RdPtr),HL
++                LD       A,(ser2BufUsed)
++                DEC      A
++                LD       (ser2BufUsed),A
++                CP       SER_EMPTYSIZE
++                JR       NC,rts1_2
++                ; set rts low
++                LD       A, $05
++                OUT      (SIOB_C),A
++                LD       A,RTS_LOW
++                OUT      (SIOB_C),A
++rts1_2:
++                LD       A,(HL)
++                EI
++                POP      HL
++                RET                      ; Char ready in A
++
++;------------------------------------------------------------------------------
+ TXA:            PUSH     AF              ; Store character
+-conout1:        IN       A,($80)         ; Status byte       
+-                BIT      1,A             ; Set Zero flag if still transmitting character       
++conout1:        SUB      A
++                OUT      (SIOA_C),A
++                IN       A,(SIOA_C)
++                RRCA
++                BIT      1,A             ; Set Zero flag if still transmitting character
+                 JR       Z,conout1       ; Loop until flag signals ready
+                 POP      AF              ; Retrieve character
+-                OUT      ($81),A         ; Output the character
++                OUT      (SIOA_D),A      ; Output the character
++                RET
++
++;------------------------------------------------------------------------------
++TXB:            PUSH     AF              ; Store character
++conout1_2:      SUB      A
++                OUT      (SIOB_C),A
++                IN       A,(SIOB_C)
++                RRCA
++                BIT      1,A             ; Set Zero flag if still transmitting character
++                JR       Z,conout1_2     ; Loop until flag signals ready
++                POP      AF              ; Retrieve character
++                OUT      (SIOB_D),A      ; Output the character
+                 RET
+ 
+ ;------------------------------------------------------------------------------
+-CKINCHAR        LD       A,(serBufUsed)
++CKINCHAR:       CP      1               ; is A==1 ?
++                JR      Z, CKINCHARB
++                LD       A,(serBufUsed)
+                 CP       $0
+                 RET
+ 
+@@ -151,29 +281,155 @@
+                 INC      HL              ; Next Character
+                 JR       PRINT           ; Continue until $00
+                 RET
++
++PRINTB:         LD       A,(HL)          ; Get character
++                OR       A               ; Is it $00 ?
++                RET      Z               ; Then RETurn on terminator
++                RST      20H             ; Print it
++                INC      HL              ; Next Character
++                JR       PRINTB           ; Continue until $00
++                RET
++
+ ;------------------------------------------------------------------------------
+-INIT:
+-               LD        HL,TEMPSTACK    ; Temp stack
++CKINCHARB:      LD       A,(ser2BufUsed)
++                CP       $0
++                RET
++
++                ; Baud set routine
++                ; Assumes trigger is connected to system clock of 7.3728 Mhz
++                ; Assumes SIO/2 is configured with divide-by-16 clock
++
++SETBAUDB:       CP       1
++                JR       NZ, NOT1200
++                LD       A, $5D
++                OUT      (CTC_PORTB), A  ; 1200
++                LD       A, 96
++                OUT      (CTC_PORTB), A
++                RET
++NOT1200:        CP       2
++                JR       NZ, NOT2400
++                LD       A, $5D
++                OUT      (CTC_PORTB), A  ; 2400
++                LD       A, 48
++                OUT      (CTC_PORTB), A
++                RET
++NOT2400:        CP       9
++                JR       NZ, NOT9600
++                LD       A, $5D
++                OUT      (CTC_PORTB), A  ; 9600
++                LD       A, 24
++                OUT      (CTC_PORTB), A
++                RET
++NOT9600:        CP       19
++                JR       NZ, NOT19200
++                LD       A, $5D
++                OUT      (CTC_PORTB), A  ; 19200
++                LD       A, 12
++                OUT      (CTC_PORTB), A
++NOT19200:       CP       115
++                JR       NZ, NOT115200
++                LD       A, $5D
++                OUT      (CTC_PORTB), A  ; 115200
++                LD       A, 2
++                OUT      (CTC_PORTB), A
++NOT115200:      RET
++
++;------------------------------------------------------------------------------
++INIT:          LD        HL,TEMPSTACK    ; Temp stack
+                LD        SP,HL           ; Set up a temporary stack
++
++;       Initialise SIO
++
++                LD      A,$00            ; write 0
++                OUT     (SIOA_C),A
++                LD      A,$18            ; reset ext/status interrupts
++                OUT     (SIOA_C),A
++
++                LD      A,$04            ; write 4
++                OUT     (SIOA_C),A
++                LD      A,$C4            ; X64, no parity, 1 stop
++                OUT     (SIOA_C),A
++
++                LD      A,$01            ; write 1
++                OUT     (SIOA_C),A
++                LD      A,$18            ; interrupt on all recv
++                OUT     (SIOA_C),A
++
++                LD      A,$03            ; write 3
++                OUT     (SIOA_C),A
++                LD      A,$E1            ; 8 bits, auto enable, rcv enab
++                OUT     (SIOA_C),A
++
++                LD      A,$05            ; write 5
++                OUT     (SIOA_C),A
++                LD      A,RTS_LOW        ; dtr enable, 8 bits, tx enable, rts
++                OUT     (SIOA_C),A
++
++                LD      A,$00
++                OUT     (SIOB_C),A
++                LD      A,$18
++                OUT     (SIOB_C),A
++
++                LD      A,$04            ; write 4
++                OUT     (SIOB_C),A
++                LD      A,$44            ; X16, no parity, 1 stop
++                OUT     (SIOB_C),A
++
++                LD      A,$01
++                OUT     (SIOB_C),A
++                LD      A,$18
++                OUT     (SIOB_C),A
++
++                LD      A,$02           ; write reg 2
++                OUT     (SIOB_C),A
++                LD      A,$E0           ; INTERRUPT VECTOR ADDRESS
++                OUT     (SIOB_C),A
++
++                LD      A,$03
++                OUT     (SIOB_C),A
++                LD      A,$E1
++                OUT     (SIOB_C),A
++
++                LD      A,$05
++                OUT     (SIOB_C),A
++                LD      A,RTS_LOW
++                OUT     (SIOB_C),A
++
++               ; baud generator for 2nd serial port, default to 115200
++               LD       A, 5DH
++               OUT      (CTC_PORTB), A  ; 115200
++               LD       A, 2
++               OUT      (CTC_PORTB), A
++
++               ; initialize first serial port
+                LD        HL,serBuf
+                LD        (serInPtr),HL
+                LD        (serRdPtr),HL
+                XOR       A               ;0 to accumulator
+                LD        (serBufUsed),A
+-               LD        A,RTS_LOW
+-               OUT       ($80),A         ; Initialise ACIA
++
++               ; initialize second serial port
++               LD        HL,ser2Buf
++               LD        (ser2InPtr),HL
++               LD        (ser2RdPtr),HL
++               XOR       A               ;0 to accumulator
++               LD        (ser2BufUsed),A
++
++               ; enable interrupts
+                IM        1
+                EI
+-               LD        HL,SIGNON1      ; Sign-on message
+-               CALL      PRINT           ; Output string
+-               LD        A,(basicStarted); Check the BASIC STARTED flag
+-               CP        'Y'             ; to see if this is power-up
+-               JR        NZ,COLDSTART    ; If not BASIC started then always do cold start
+-               LD        HL,SIGNON2      ; Cold/warm message
+-               CALL      PRINT           ; Output string
++
++               LD        HL,SIGNON1       ; Sign-on message
++               CALL      PRINT            ; Output string
++               LD        A,(basicStarted) ; Check the BASIC STARTED flag
++               CP        'Y'              ; to see if this is power-up
++               JR        NZ,COLDSTART     ; If not BASIC started then always do cold start
++               LD        HL,SIGNON2       ; Cold/warm message
++               CALL      PRINT            ; Output string
+ CORW:
++               LD        A, 0
+                CALL      RXA
+-               AND       %11011111       ; lower to uppercase
++               AND       $DF              ; lower to uppercase
+                CP        'C'
+                JR        NZ, CHECKWARM
+                RST       08H
+@@ -183,7 +439,7 @@
+                RST       08H
+ COLDSTART:     LD        A,'Y'           ; Set the BASIC STARTED flag
+                LD        (basicStarted),A
+-               JP        $0150           ; Start BASIC COLD
++               JP        $0290           ; Start BASIC COLD
+ CHECKWARM:
+                CP        'W'
+                JR        NZ, CORW
+@@ -192,11 +448,11 @@
+                RST       08H
+                LD        A,$0A
+                RST       08H
+-               JP        $0153           ; Start BASIC WARM
+-              
++               JP        $0293           ; Start BASIC WARM
++
+ SIGNON1:       .BYTE     CS
+                .BYTE     "Z80 SBC By Grant Searle",CR,LF,0
+ SIGNON2:       .BYTE     CR,LF
+                .BYTE     "Cold or warm start (C or W)? ",0
+-              
+-.END
++
++END
