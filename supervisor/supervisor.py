@@ -27,6 +27,9 @@ RESET= 0x02
 CLKEN= 0x04
 CLKOUT=0x08
 
+# bank port for RAM-ROM board
+BANK_PORT=0x38
+
 def bitswap(x):
     y=0
     if (x&128)!=0:
@@ -70,7 +73,7 @@ class Supervisor:
         self.delay()
         self.ixControl.or_gpio(0, RESET)
 
-    def take_bus(self):
+    def take_bus(self, setBank=None):
         self.ixControl.not_gpio(0,BUSREQ)
         self.log("wait for busack")
         while True:
@@ -83,10 +86,20 @@ class Supervisor:
         self.ixData.set_iodir(1, M1 | CLK | INT | BUSACK)
         self.ixData.set_gpio(1, MREQ | WR | RD | IORQ)
 
+        if setBank is not None:
+            self.io_write(BANK_PORT, setBank)
+
     def release_bus(self, reset=False):
         self.ixAddress.set_iodir(0,0xFF)
         self.ixAddress.set_iodir(1,0xFF)
         self.ixData.set_iodir(1, 0xFF)
+
+        # Note on observed reset behavior while BUSREQ is low
+        # While reset is LOW, BUSACK will go high. As soon as RESET goes back
+        # high, BUSACK will go low again. There is exactly one M1 read cycle
+        # at the exact time reset goes high. My assumption is that this
+        # means the first instruction is fetched if RESET is pulsed while
+        # busreq is held low.
 
         if reset:
             self.ixControl.not_gpio(0,RESET)
@@ -128,13 +141,13 @@ class Supervisor:
 
     def mem_write(self, addr, val):
         self.set_address(addr)
-        self.ixData.not_gpio(1, WR)
-        self.ixData.not_gpio(1, MREQ)
         self.ixData.set_iodir(0, 0x00)
         self.ixData.set_gpio(0, val)
-        self.ixData.set_iodir(0, 0xFF)
+        self.ixData.not_gpio(1, WR)
+        self.ixData.not_gpio(1, MREQ)
         self.ixData.or_gpio(1, WR)
         self.ixData.or_gpio(1, MREQ)
+        self.ixData.set_iodir(0, 0xFF)
 
     def io_read(self, addr):
         self.set_address(addr)
@@ -147,13 +160,13 @@ class Supervisor:
 
     def io_write(self, addr, val):
         self.set_address(addr)
-        self.ixData.not_gpio(1, WR)
-        self.ixData.not_gpio(1, IORQ)
         self.ixData.set_iodir(0, 0x00)
         self.ixData.set_gpio(0, val)
-        self.ixData.set_iodir(0, 0xFF)
+        self.ixData.not_gpio(1, WR)
+        self.ixData.not_gpio(1, IORQ)
         self.ixData.or_gpio(1, WR)
         self.ixData.or_gpio(1, IORQ)
+        self.ixData.set_iodir(0, 0xFF)
 
     def singlestep_on(self):
         self.ixData.set_intcon(1, M1)
@@ -285,14 +298,16 @@ def main():
          help="print ascii value", action="store_true", default=False)
     parser.add_option("-R", "--rate", dest="rate",
          help="rate for slow clock", metavar="HERTZ", type="int", default=10)
+    parser.add_option("-B", "--bank", dest="bank",
+         help="bank number to select on ram-rom board", metavar="NUMBER", type="int", default=None)
     parser.add_option("-v", "--verbose", dest="verbose",
          help="verbose", action="store_true", default=False)
     parser.add_option("-f", "--filename", dest="filename",
          help="filename", default=None)
     parser.add_option("-r", "--reset", dest="reset_on_release",
-         help="reset on release of bus", default=False)
+         help="reset on release of bus", action="store_true", default=False)
     parser.add_option("-n", "--norelease", dest="norelease",
-         help="do not release bus", default=False)
+         help="do not release bus", action="store_true", default=False)
 
     #parser.disable_interspersed_args()
 
@@ -309,7 +324,7 @@ def main():
 
     elif (cmd=="memdump"):
         try:
-            super.take_bus()
+            super.take_bus(setBank=options.bank)
             for i in range(options.addr,options.addr+options.count):
                 val = super.mem_read(i)
                 if options.ascii:
@@ -323,7 +338,7 @@ def main():
     elif (cmd=="savehex"):
         hexdumper = HexFile(options.addr)
         try:
-            super.take_bus()
+            super.take_bus(setBank=options.bank)
             for i in range(options.addr,options.addr+options.count):
                 val = super.mem_read(i)
                 hexdumper.write(val)
@@ -350,7 +365,7 @@ def main():
             hexloader.from_str(sys.stdin.read())
 
         try:
-            super.take_bus()
+            super.take_bus(setBank=options.bank)
             offset = hexloader.addr
             for val in hexloader.bytes:
                 super.mem_write(offset, val)
@@ -362,7 +377,7 @@ def main():
 
     elif (cmd=="peek"):
         try:
-            super.take_bus()
+            super.take_bus(setBank=options.bank)
             print "%02X" % super.mem_read(options.addr)
         finally:
             if not options.norelease:
@@ -370,7 +385,7 @@ def main():
 
     elif (cmd=="poke"):
         try:
-            super.take_bus()
+            super.take_bus(setBank=options.bank)
             super.mem_write(options.addr, options.value)
         finally:
             if not options.norelease:
@@ -378,7 +393,7 @@ def main():
 
     elif (cmd=="ioread"):
         try:
-            super.take_bus()
+            super.take_bus(setBank=options.bank)
             print "%02X" % super.io_read(options.addr)
         finally:
             if not options.norelease:
@@ -387,7 +402,7 @@ def main():
     elif (cmd=="iowatch"):
         last=None
         try:
-            super.take_bus()
+            super.take_bus(setBank=options.bank)
             while True:
                 x=super.io_read(options.addr)
                 if (x!=last):
@@ -399,7 +414,7 @@ def main():
 
     elif (cmd=="iowrite"):
         try:
-            super.take_bus()
+            super.take_bus(setBank=options.bank)
             super.io_write(options.addr, options.value)
         finally:
             if not options.norelease:
