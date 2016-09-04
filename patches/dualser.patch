@@ -1,5 +1,5 @@
---- ../basic_work/basic32/bas32K.asm	2013-09-10 14:01:38.000000000 -0700
-+++ ../basic_work/scbasic/bas32k.asm	2016-08-24 16:06:04.000000000 -0700
+--- ../grant_searle/basic32/bas32K.asm	2013-09-10 14:01:38.000000000 -0700
++++ ../basic_work/scbasic/bas32k.asm	2016-08-30 16:32:50.000000000 -0700
 @@ -19,6 +19,16 @@
  ; Adapted for the freeware Zilog Macro Assembler 2.10 to produce
  ; the original ROM code (checksum A934H). PA
@@ -31,7 +31,7 @@
  BN      .EQU    28H             ; BIN error
  
 -        .ORG    00150H
-+        .ORG    0               ; necessary for zasm
++;        .ORG    0               ; necessary for zasm
 +        .ORG    00290H
  
  COLD:   JP      STARTB          ; Jump for cold start
@@ -199,9 +199,9 @@
          JP      $0000           ; Restart (Normally Monitor Start)
  
  
---- ../basic_work/basic32/bas32K.asm	2013-09-10 14:01:38.000000000 -0700
-+++ ../basic_work/scbasic/basdisk.asm	2016-08-24 18:10:02.000000000 -0700
-@@ -19,6 +19,16 @@
+--- ../grant_searle/basic32/bas32K.asm	2013-09-10 14:01:38.000000000 -0700
++++ ../basic_work/scbasic/basdisk.asm	2016-09-04 12:26:20.000000000 -0700
+@@ -19,6 +19,23 @@
  ; Adapted for the freeware Zilog Macro Assembler 2.10 to produce
  ; the original ROM code (checksum A934H). PA
  
@@ -214,11 +214,18 @@
 +;       BAUD ser_num,value - set baud rate (1=1200,2=2400,9=9600,19=19200,115=115200)
 +;    Valid ser_num is 0 or 1. RSER doesn't work on port 0, as basic will clear
 +;    the input buffer looking for CTRL-C.
-+
++;
++;    Added three new statements for compactflash
++;       DINIT - initialize disk subsystem and perform disk id command
++;       DREAD sec_num - read from compactflash to RAM buffer
++;       DWRITE sec_num - write from RAM buffer to compactflash
++;    RAM buffer is at the DISKBUF EQU below. You can peek and poke that
++;    buffer from Basic.
++	
  ; GENERAL EQUATES
  
  CTRLC   .EQU    03H             ; Control "C"
-@@ -37,7 +47,9 @@
+@@ -37,7 +54,9 @@
  
  ; BASIC WORK SPACE LOCATIONS
  
@@ -229,7 +236,7 @@
  USR     .EQU    WRKSPC+3H           ; "USR (x)" jump
  OUTSUB  .EQU    WRKSPC+6H           ; "OUT p,n"
  OTPORT  .EQU    WRKSPC+7H           ; Port (p)
-@@ -126,7 +138,17 @@
+@@ -126,7 +145,17 @@
  HX      .EQU    26H             ; HEX error
  BN      .EQU    28H             ; BIN error
  
@@ -243,12 +250,12 @@
 +I6      .EQU    I0+6
 +I7      .EQU    I0+7
 +
-+        .ORG    0               ; necessary for zasm
++;        .ORG    0               ; necessary for zasm
 +        .ORG    00290H
  
  COLD:   JP      STARTB          ; Jump for cold start
  WARM:   JP      WARMST          ; Jump for warm start
-@@ -246,6 +268,8 @@
+@@ -246,6 +275,8 @@
          .WORD   ATN
          .WORD   PEEK
          .WORD   DEEK
@@ -257,7 +264,7 @@
          .WORD   POINT
          .WORD   LEN
          .WORD   STR
-@@ -296,6 +320,11 @@
+@@ -296,6 +327,11 @@
          .BYTE   'C'+80H,"LEAR"
          .BYTE   'C'+80H,"LOAD"
          .BYTE   'C'+80H,"SAVE"
@@ -269,7 +276,7 @@
          .BYTE   'N'+80H,"EW"
  
          .BYTE   'T'+80H,"AB("
-@@ -334,6 +363,8 @@
+@@ -334,6 +370,8 @@
          .BYTE   'A'+80H,"TN"
          .BYTE   'P'+80H,"EEK"
          .BYTE   'D'+80H,"EEK"
@@ -278,7 +285,7 @@
          .BYTE   'P'+80H,"OINT"
          .BYTE   'L'+80H,"EN"
          .BYTE   'S'+80H,"TR$"
-@@ -385,6 +416,11 @@
+@@ -385,6 +423,11 @@
          .WORD   CLEAR
          .WORD   REM
          .WORD   REM
@@ -290,7 +297,7 @@
          .WORD   NEW
  
  ; RESERVED WORD TOKEN VALUES
-@@ -396,27 +432,27 @@
+@@ -396,27 +439,27 @@
  ZGOSUB  .EQU    08CH            ; GOSUB
  ZREM    .EQU    08EH            ; REM
  ZPRINT  .EQU    09EH            ; PRINT
@@ -338,7 +345,7 @@
  
  ; ARITHMETIC PRECEDENCE TABLE
  
-@@ -1249,8 +1285,10 @@
+@@ -1249,8 +1292,10 @@
          RET
  
  
@@ -350,7 +357,7 @@
          RST     10H             ; Get the key into A
          CP      ESC             ; Escape key?
          JR      Z,BRK           ; Yes, break
-@@ -1260,7 +1298,8 @@
+@@ -1260,7 +1305,8 @@
          RET     NZ              ; Other key, ignore
  
  
@@ -360,7 +367,7 @@
          CP      CTRLQ           ; Resume scrolling?
          RET      Z              ; Release the chokehold
          CP      CTRLC           ; Second break?
-@@ -2963,6 +3002,143 @@
+@@ -2963,6 +3009,143 @@
          CALL    INPSUB          ; Get input from port
          JP      PASSA           ; Return integer A
  
@@ -504,7 +511,7 @@
  POUT:   CALL    SETIO           ; Set up port number
          JP      OUTSUB          ; Output data and return
  
-@@ -4255,7 +4431,7 @@
+@@ -4255,7 +4438,7 @@
          RL      D
          JR      NC,ZEROSUP
          JR      BITOUT2
@@ -513,7 +520,7 @@
          RL      E
          RL      D               ; Top bit now in carry
  BITOUT2:
-@@ -4316,7 +4492,7 @@
+@@ -4316,7 +4499,7 @@
          JP      $0008           ; output a char
  
  
@@ -522,7 +529,7 @@
          JP      $0000           ; Restart (Normally Monitor Start)
  
  
---- ../basic_work/basic32/int32K.asm	2013-09-10 23:04:20.000000000 -0700
+--- ../grant_searle/basic32/int32K.asm	2013-09-10 23:04:20.000000000 -0700
 +++ ../basic_work/scbasic/int32k.asm	2016-08-19 16:31:28.000000000 -0700
 @@ -21,15 +21,31 @@
  SER_FULLSIZE    .EQU     30H
@@ -862,8 +869,8 @@
 -              
 +
  .END
---- ../basic_work/basic32/int32K.asm	2013-09-10 23:04:20.000000000 -0700
-+++ ../basic_work/scbasic/intsio.asm	2016-08-24 12:20:20.000000000 -0700
+--- ../grant_searle/basic32/int32K.asm	2013-09-10 23:04:20.000000000 -0700
++++ ../basic_work/scbasic/intsio.asm	2016-09-03 19:31:22.000000000 -0700
 @@ -21,15 +21,33 @@
  SER_FULLSIZE    .EQU     30H
  SER_EMPTYSIZE   .EQU     5
@@ -871,7 +878,7 @@
 -RTS_HIGH        .EQU     0D6H
 -RTS_LOW         .EQU     096H
 +; Address of CTC for PORT B serial for setting baud rates
-+CTC_PORTB       .EQU     51H
++CTC_PORTB       .EQU     91H
 +
 +SIOA_D          .EQU     $80
 +SIOA_C          .EQU     $82
@@ -1310,7 +1317,8 @@
 +               JP        $0293           ; Start BASIC WARM
 +
  SIGNON1:       .BYTE     CS
-                .BYTE     "Z80 SBC By Grant Searle",CR,LF,0
+-               .BYTE     "Z80 SBC By Grant Searle",CR,LF,0
++               .BYTE     "Scott Was Here" ; "Z80 SBC By Grant Searle",CR,LF,0
  SIGNON2:       .BYTE     CR,LF
                 .BYTE     "Cold or warm start (C or W)? ",0
 -              
