@@ -1,0 +1,1237 @@
+--- ../download/cpm/source/cbios64.asm	2013-08-08 00:22:54.000000000 -0700
++++ ../basic_work/sccpm/cbios64.asm	2016-08-31 22:36:06.000000000 -0700
+@@ -26,18 +26,18 @@
+ tpabuf		.EQU	80h		; Default I/O buffer and command line storage.
+ 
+ 
+-SER_BUFSIZE	.EQU	60
+-SER_FULLSIZE	.EQU	50
++SER_BUFSIZE	.EQU	150
++SER_FULLSIZE	.EQU	140
+ SER_EMPTYSIZE	.EQU	5
+ 
+ 
+ RTS_HIGH	.EQU	0E8H
+ RTS_LOW		.EQU	0EAH
+ 
+-SIOA_D		.EQU	$00
+-SIOA_C		.EQU	$02
+-SIOB_D		.EQU	$01
+-SIOB_C		.EQU	$03
++SIOA_D		.EQU	$80
++SIOA_C		.EQU	SIOA_D+2 ;$02
++SIOB_D		.EQU	SIOA_D+1 ;$01
++SIOB_C		.EQU	SIOA_D+3 ;$03
+ 
+ int38		.EQU	38H
+ nmi		.EQU	66H
+@@ -58,20 +58,20 @@
+ 
+ 
+ ; CF registers
+-CF_DATA		.EQU	$10
+-CF_FEATURES	.EQU	$11
+-CF_ERROR	.EQU	$11
+-CF_SECCOUNT	.EQU	$12
+-CF_SECTOR	.EQU	$13
+-CF_CYL_LOW	.EQU	$14
+-CF_CYL_HI	.EQU	$15
+-CF_HEAD		.EQU	$16
+-CF_STATUS	.EQU	$17
+-CF_COMMAND	.EQU	$17
+-CF_LBA0		.EQU	$13
+-CF_LBA1		.EQU	$14
+-CF_LBA2		.EQU	$15
+-CF_LBA3		.EQU	$16
++CF_DATA		.EQU	$E0
++CF_FEATURES	.EQU	CF_DATA+1
++CF_ERROR	.EQU	CF_DATA+1
++CF_SECCOUNT	.EQU	CF_DATA+2
++CF_SECTOR	.EQU	CF_DATA+3
++CF_CYL_LOW	.EQU	CF_DATA+4
++CF_CYL_HI	.EQU	CF_DATA+5
++CF_HEAD		.EQU	CF_DATA+6
++CF_STATUS	.EQU	CF_DATA+7
++CF_COMMAND	.EQU	CF_DATA+7
++CF_LBA0		.EQU	CF_DATA+3
++CF_LBA1		.EQU	CF_DATA+4
++CF_LBA2		.EQU	CF_DATA+5
++CF_LBA3		.EQU	CF_DATA+6
+ 
+ ;CF Features
+ CF_8BIT		.EQU	1
+@@ -386,7 +386,7 @@
+ 		LD	HL,(serAInPtr)
+ 		INC	HL
+ 		LD	A,L
+-		CP	(serABuf+SER_BUFSIZE) & $FF
++		CP	serAInMask
+ 		JR	NZ, notAWrap
+ 		LD	HL,serABuf
+ notAWrap:
+@@ -413,7 +413,7 @@
+ 		LD	HL,(serBInPtr)
+ 		INC	HL
+ 		LD	A,L
+-		CP	(serBBuf+SER_BUFSIZE) & $FF
++		CP	serBInMask
+ 		JR	NZ, notBWrap
+ 		LD	HL,serBBuf
+ notBWrap:
+@@ -505,7 +505,7 @@
+ 		LD	HL,(serARdPtr)
+ 		INC	HL
+ 		LD	A,L
+-		CP	(serABuf+SER_BUFSIZE) & $FF
++		CP	serAInMask
+ 		JR	NZ, notRdWrapA
+ 		LD	HL,serABuf
+ notRdWrapA:
+@@ -540,7 +540,7 @@
+ 		LD	HL,(serBRdPtr)
+ 		INC	HL
+ 		LD	A,L
+-		CP	(serBBuf+SER_BUFSIZE) & $FF
++		CP	serBInMask
+ 		JR	NZ, notRdWrapB
+ 		LD	HL,serBBuf
+ notRdWrapB:
+@@ -1130,6 +1130,9 @@
+ serBRdPtr	.DW	00h
+ serBBufUsed	.DB	00h
+ 
++serAInMask      .EQU     serAInPtr&$FF
++serBInMask      .EQU     serBInPtr&$FF
++
+ serialVarsEnd:	.EQU	$
+ 
+ 
+@@ -1157,7 +1160,7 @@
+ 
+ 
+ ;=================================================================================
+-; Relocate TPA area from 4100 to 0100 then start CP/M
++; Relocate TPA area from 8100 to 0100 then start CP/M
+ ; Used to manually transfer a loaded program after CP/M was previously loaded
+ ;=================================================================================
+ 
+@@ -1165,7 +1168,7 @@
+ 		LD	A,$01
+ 		OUT	($38),A
+ 
+-		LD	HL,04100H
++		LD	HL,08100H
+ 		LD	DE,00100H
+ 		LD	BC,08F00H
+ 		LDIR
+--- ../download/cpm/source/cpm22.asm	2013-01-17 11:12:28.000000000 -0800
++++ ../basic_work/sccpm/cpm22.asm	2016-08-30 09:27:34.000000000 -0700
+@@ -1216,7 +1216,7 @@
+ ;   Batch (or SUBMIT) processing information storage.
+ ;
+ BATCH:	.DB	0		;batch mode flag (0=not active).
+-BATCHFCB: .DB	0,
++BATCHFCB: .DB	0
+ 	.TEXT "$$$     SUB"
+ 	.DB 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+ ;
+--- ../download/cpm/source/form64.asm	2013-01-09 09:07:50.000000000 -0800
++++ ../basic_work/sccpm/form64.asm	2016-08-30 21:13:22.000000000 -0700
+@@ -17,20 +17,20 @@
+ 
+ 
+ ; CF registers
+-CF_DATA		.EQU	$10
+-CF_FEATURES	.EQU	$11
+-CF_ERROR	.EQU	$11
+-CF_SECCOUNT	.EQU	$12
+-CF_SECTOR	.EQU	$13
+-CF_CYL_LOW	.EQU	$14
+-CF_CYL_HI	.EQU	$15
+-CF_HEAD		.EQU	$16
+-CF_STATUS	.EQU	$17
+-CF_COMMAND	.EQU	$17
+-CF_LBA0		.EQU	$13
+-CF_LBA1		.EQU	$14
+-CF_LBA2		.EQU	$15
+-CF_LBA3		.EQU	$16
++CF_DATA		.EQU	$E0
++CF_FEATURES	.EQU	CF_DATA+1
++CF_ERROR	.EQU	CF_DATA+1
++CF_SECCOUNT	.EQU	CF_DATA+2
++CF_SECTOR	.EQU	CF_DATA+3
++CF_CYL_LOW	.EQU	CF_DATA+4
++CF_CYL_HI	.EQU	CF_DATA+5
++CF_HEAD		.EQU	CF_DATA+6
++CF_STATUS	.EQU	CF_DATA+7
++CF_COMMAND	.EQU	CF_DATA+7
++CF_LBA0		.EQU	CF_DATA+3
++CF_LBA1		.EQU	CF_DATA+4
++CF_LBA2		.EQU	CF_DATA+5
++CF_LBA3		.EQU	CF_DATA+6
+ 
+ ;CF Features
+ CF_8BIT		.EQU	1
+@@ -46,7 +46,7 @@
+ 
+ ;====================================================================================
+ 
+-		.ORG	5000H		; Format program origin.
++		.ORG	8100H		; Format program origin.
+ 
+ 
+ 		CALL	printInline
+--- ../download/cpm/source/monitor.asm	2013-09-05 23:46:18.000000000 -0700
++++ ../basic_work/sccpm/gocpm.asm	2016-09-05 15:53:02.000000000 -0700
+@@ -29,20 +29,20 @@
+ CLS		.EQU	0CH
+ 
+ ; CF registers
+-CF_DATA		.EQU	$10
+-CF_FEATURES	.EQU	$11
+-CF_ERROR	.EQU	$11
+-CF_SECCOUNT	.EQU	$12
+-CF_SECTOR	.EQU	$13
+-CF_CYL_LOW	.EQU	$14
+-CF_CYL_HI	.EQU	$15
+-CF_HEAD		.EQU	$16
+-CF_STATUS	.EQU	$17
+-CF_COMMAND	.EQU	$17
+-CF_LBA0		.EQU	$13
+-CF_LBA1		.EQU	$14
+-CF_LBA2		.EQU	$15
+-CF_LBA3		.EQU	$16
++CF_DATA		.EQU	$E0
++CF_FEATURES	.EQU	CF_DATA+1
++CF_ERROR	.EQU	CF_DATA+1
++CF_SECCOUNT	.EQU	CF_DATA+2
++CF_SECTOR	.EQU	CF_DATA+3
++CF_CYL_LOW	.EQU	CF_DATA+4
++CF_CYL_HI	.EQU	CF_DATA+5
++CF_HEAD		.EQU	CF_DATA+6
++CF_STATUS	.EQU	CF_DATA+7
++CF_COMMAND	.EQU	CF_DATA+7
++CF_LBA0		.EQU	CF_DATA+3
++CF_LBA1		.EQU	CF_DATA+4
++CF_LBA2		.EQU	CF_DATA+5
++CF_LBA3		.EQU	CF_DATA+6
+ 
+ ;CF Features
+ CF_8BIT		.EQU	1
+@@ -68,34 +68,38 @@
+ RTS_HIGH	.EQU	0E8H
+ RTS_LOW		.EQU	0EAH
+ 
+-SIOA_D		.EQU	$00
+-SIOA_C		.EQU	$02
+-SIOB_D		.EQU	$01
+-SIOB_C		.EQU	$03
+-
+-		.ORG	$4000
+-serABuf		.ds	SER_BUFSIZE
+-serAInPtr	.ds	2
+-serARdPtr	.ds	2
+-serABufUsed	.ds	1
+-serBBuf		.ds	SER_BUFSIZE
+-serBInPtr	.ds	2
+-serBRdPtr	.ds	2
+-serBBufUsed	.ds	1
+-
+-primaryIO	.ds	1
+-secNo		.ds	1
+-dmaAddr		.ds	2
+-
+-stackSpace	.ds	32
+-STACK   	.EQU    $	; Stack top
++; Address of CTC for PORT B serial for setting baud rates
++CTC_PORTB       .EQU     91H
+ 
++SIOA_D		.EQU	$80
++SIOA_C		.EQU	SIOA_D+2 ;$02
++SIOB_D		.EQU	SIOA_D+1 ;$01
++SIOB_C		.EQU	SIOA_D+3 ;$03
++
++serABuf         .EQU     $8000
++serAInPtr       .EQU     serABuf+SER_BUFSIZE
++serARdPtr       .EQU     serAInPtr+2
++serABufUsed     .EQU     serARdPtr+2
++
++serAInMask      .EQU     serAInPtr&$FF
++
++serBBuf         .EQU     $8050
++serBInPtr       .EQU     serBBuf+SER_BUFSIZE
++serBRdPtr       .EQU     serBInPtr+2
++serBBufUsed     .EQU     serBRdPtr+2
++
++serBInMask      .EQU     serBInPtr&$FF
++
++primaryIO       .EQU    serBBufUsed+2
++secNo           .EQU    primaryIO+1
++dmaAddr         .EQU    secNo+1
++TEMPSTACK       .EQU    dmaAddr+2+32
+ 
+ ;------------------------------------------------------------------------------
+ ;                         START OF MONITOR ROM
+ ;------------------------------------------------------------------------------
+ 
+-MON		.ORG	$0000		; MONITOR ROM RESET VECTOR
++   		.ORG	$0000		; MONITOR ROM RESET VECTOR
+ ;------------------------------------------------------------------------------
+ ; Reset
+ ;------------------------------------------------------------------------------
+@@ -129,82 +133,92 @@
+ RST18		JP	CKINCHAR
+ 
+ ;------------------------------------------------------------------------------
+-; SIO Vector = 0x60
++; SIO Vector = 0x38
+ ;------------------------------------------------------------------------------
+ 
+-		.ORG	$0060
+-		.DW	serialInt
++		.ORG	$0038
++		JP	serialInt
+ 
+ 
+ ;------------------------------------------------------------------------------
+-; Serial interrupt handlers
+-; Same interrupt called if either of the inputs receives a character
+-; so need to check the status of each SIO input.
+-;------------------------------------------------------------------------------
+-serialInt:	PUSH	AF
+-		PUSH	HL
+-
+-		; Check if there is a char in channel A
+-		; If not, there is a char in channel B
+-		SUB	A
+-		OUT 	(SIOA_C),A
+-		IN   	A,(SIOA_C)	; Status byte D2=TX Buff Empty, D0=RX char ready	
+-		RRCA			; Rotates RX status into Carry Flag,	
+-		JR	NC, serialIntB
+-
+-serialIntA:
+-		LD	HL,(serAInPtr)
+-		INC	HL
+-		LD	A,L
+-		CP	(serABuf+SER_BUFSIZE) & $FF
+-		JR	NZ, notAWrap
+-		LD	HL,serABuf
+-notAWrap:
+-		LD	(serAInPtr),HL
+-		IN	A,(SIOA_D)
+-		LD	(HL),A
+-
+-		LD	A,(serABufUsed)
+-		INC	A
+-		LD	(serABufUsed),A
+-		CP	SER_FULLSIZE
+-		JR	C,rtsA0
+-	        LD   	A,$05
+-		OUT  	(SIOA_C),A
+-	        LD   	A,RTS_HIGH
+-		OUT  	(SIOA_C),A
+-rtsA0:
+-		POP	HL
+-		POP	AF
+-		EI
+-		RETI
++serialInt:      PUSH     AF
++                PUSH     HL
++
++                SUB      A
++                OUT      (SIOA_C),A
++                IN       A, (SIOA_C)
++                RRCA
++                JR       NC, check2
++
++                IN       A,(SIOA_D)
++                PUSH     AF
++                LD       A,(serABufUsed)
++                CP       SER_BUFSIZE     ; If full then ignore
++                JR       NZ,notFull
++                POP      AF
++                JR       check2
++
++notFull:        LD       HL,(serAInPtr)
++                INC      HL
++                LD       A,L             ; Only need to check low byte becasuse buffer<256 bytes
++                CP       serAInMask
++                JR       NZ, notWrap
++                LD       HL,serABuf
++notWrap:        LD       (serAInPtr),HL
++                POP      AF
++                LD       (HL),A
++                LD       A,(serABufUsed)
++                INC      A
++                LD       (serABufUsed),A
++                CP       SER_FULLSIZE
++                JR       C,check2
++                ; set rts high
++                LD       A, $05
++                OUT      (SIOA_C),A
++                LD       A,RTS_HIGH
++                OUT      (SIOA_C),A
++
++; port 2
++
++check2:         SUB      A
++                OUT      (SIOB_C),A
++                IN       A, (SIOB_C)
++                RRCA
++                JR       NC, rts0
++
++                IN       A,(SIOB_D)
++                PUSH     AF
++                LD       A,(serBBufUsed)
++                CP       SER_BUFSIZE     ; If full then ignore
++                JR       NZ,notFull2
++                POP      AF
++                JR       rts0
++
++notFull2:       LD       HL,(serBInPtr)
++                INC      HL
++                LD       A,L             ; Only need to check low byte becasuse buffer<256 bytes
++                CP       serBInMask
++                JR       NZ, notWrap2
++                LD       HL,serBBuf
++notWrap2:       LD       (serBInPtr),HL
++                POP      AF
++                LD       (HL),A
++                LD       A,(serBBufUsed)
++                INC      A
++                LD       (serBBufUsed),A
++                CP       SER_FULLSIZE
++                JR       C,rts0
++                ; set rts high
++                LD       A, $05
++                OUT      (SIOB_C),A
++                LD       A,RTS_HIGH
++                OUT      (SIOB_C),A
+ 
+-serialIntB:
+-		LD	HL,(serBInPtr)
+-		INC	HL
+-		LD	A,L
+-		CP	(serBBuf+SER_BUFSIZE) & $FF
+-		JR	NZ, notBWrap
+-		LD	HL,serBBuf
+-notBWrap:
+-		LD	(serBInPtr),HL
+-		IN	A,(SIOB_D)
+-		LD	(HL),A
++rts0:           POP      HL
++                POP      AF
+ 
+-		LD	A,(serBBufUsed)
+-		INC	A
+-		LD	(serBBufUsed),A
+-		CP	SER_FULLSIZE
+-		JR	C,rtsB0
+-	        LD   	A,$05
+-		OUT  	(SIOB_C),A
+-	        LD   	A,RTS_HIGH
+-		OUT  	(SIOB_C),A
+-rtsB0:
+-		POP	HL
+-		POP	AF
+-		EI
+-		RETI
++                EI
++                RETI
+ 
+ ;------------------------------------------------------------------------------
+ ; Console input routine
+@@ -224,7 +238,7 @@
+ 		LD	HL,(serARdPtr)
+ 		INC	HL
+ 		LD	A,L
+-		CP	(serABuf+SER_BUFSIZE) & $FF
++		CP	serAInMask
+ 		JR	NZ, notRdWrapA
+ 		LD	HL,serABuf
+ notRdWrapA:
+@@ -259,7 +273,7 @@
+ 		LD	HL,(serBRdPtr)
+ 		INC	HL
+ 		LD	A,L
+-		CP	(serBBuf+SER_BUFSIZE) & $FF
++		CP	serBInMask
+ 		JR	NZ, notRdWrapB
+ 		LD	HL,serBBuf
+ notRdWrapB:
+@@ -384,7 +398,8 @@
+ ;------------------------------------------------------------------------------
+ ; Initialise hardware and start main loop
+ ;------------------------------------------------------------------------------
+-INIT		LD   SP,STACK		; Set the Stack Pointer
++INIT            LD        HL,TEMPSTACK    ; Temp stack
++                LD        SP,HL           ; Set up a temporary stack
+ 
+ 		LD	HL,serABuf
+ 		LD	(serAInPtr),HL
+@@ -398,6 +413,12 @@
+ 		LD	(serABufUsed),A
+ 		LD	(serBBufUsed),A
+ 
++;       Baud generator for 2nd serial port, default to 115200
++               LD       A, 5DH
++               OUT      (CTC_PORTB), A  ; 115200
++               LD       A, 2
++               OUT      (CTC_PORTB), A
++
+ ;	Initialise SIO
+ 
+ 		LD	A,$00
+@@ -432,7 +453,8 @@
+ 
+ 		LD	A,$04
+ 		OUT	(SIOB_C),A
+-		LD	A,$C4
++                ;LD      A,$44            ; X16, no parity, 1 stop
++                LD	A,$C4            ; X64, no parity, 1 stop
+ 		OUT	(SIOB_C),A
+ 
+ 		LD	A,$01
+@@ -442,9 +464,9 @@
+ 
+ 		LD	A,$02
+ 		OUT	(SIOB_C),A
+-		LD	A,$60		; INTERRUPT VECTOR ADDRESS
++		LD	A,$E0		; INTERRUPT VECTOR ADDRESS
+ 		OUT	(SIOB_C),A
+-	
++
+ 		LD	A,$03
+ 		OUT	(SIOB_C),A
+ 		LD	A,$E1
+@@ -455,52 +477,12 @@
+ 		LD	A,RTS_LOW
+ 		OUT	(SIOB_C),A
+ 
+-		; Interrupt vector in page 0
+-		LD	A,$00
+-		LD	I,A
+-
+-		IM	2
++		IM	1
+ 		EI
+ 
+-		; Display the "Press space to start" message on both consoles
+-		LD	A,$00
+-		LD	(primaryIO),A
+-    		LD   	HL,INITTXT
+-		CALL 	PRINT
+-		LD	A,$01
+-		LD	(primaryIO),A
+-    		LD   	HL,INITTXT
+-		CALL 	PRINT
+-
+-		; Wait until space is in one of the buffers to determine the active console
+-
+-waitForSpace:
+-
+-		CALL ckincharA
+-		jr	Z,notInA
+-		LD	A,$00
+-		LD	(primaryIO),A
+-		CALL	conin
+-		CP	' '
+-		JP	NZ, waitForSpace
+-		JR	spacePressed
+-
+-notInA:
+-		CALL ckincharB
+-		JR	Z,waitForSpace
+-		LD	A,$01
+-		LD	(primaryIO),A
+-		CALL	conin
+-		CP	' '
+-		JP	NZ, waitForSpace
+-		JR	spacePressed
+-
+-spacePressed:
+-
+-		; Clear message on both consoles
+-		LD	A,$0C
+-		CALL	conoutA
+-		CALL	conoutB
++                ; Force port 0
++                LD      A, $00
++                LD      (primaryIO), A
+ 
+ 		; primaryIO is now set to the channel where SPACE was pressed
+ 	
+@@ -509,44 +491,7 @@
+ 		LD   HL,SIGNON	; Print SIGNON message
+ 		CALL PRINT
+ 
+-;------------------------------------------------------------------------------
+-; Monitor command loop
+-;------------------------------------------------------------------------------
+-MAIN  		LD   HL,MAIN	; Save entry point for Monitor	
+-		PUSH HL		; This is the return address
+-MAIN0		CALL TXCRLF	; Entry point for Monitor, Normal	
+-		LD   A,'>'	; Get a ">"	
+-		RST 08H		; print it
+-
+-MAIN1		CALL RDCHR	; Get a character from the input port
+-		CP   ' '	; <spc> or less? 	
+-		JR   C,MAIN1	; Go back
+-	
+-		CP   ':'	; ":"?
+-		JP   Z,LOAD	; First character of a HEX load
+-
+-		CALL WRCHR	; Print char on console
+-
+-		CP   '?'
+-		JP   Z,HELP
+-
+-		AND  $5F	; Make character uppercase
+-
+-		CP   'R'
+-		JP   Z,RST00
+-
+-		CP   'B'
+-		JP   Z,BASIC
+-
+-		CP   'G'
+-		JP   Z,GOTO
+-
+-		CP   'X'
+-		JP   Z,CPMLOAD
+-
+-		LD   A,'?'	; Get a "?"	
+-		RST 08H		; Print it
+-		JR   MAIN0
++		JP   CPMLOAD2
+ 	
+ ;------------------------------------------------------------------------------
+ ; Print string of characters to Serial A until byte=$00, WITH CR, LF
+@@ -566,190 +511,8 @@
+ 		RET
+ 
+ ;------------------------------------------------------------------------------
+-; Get a character from the console, must be $20-$7F to be valid (no control characters)
+-; <Ctrl-c> and <SPACE> breaks with the Zero Flag set
+-;------------------------------------------------------------------------------	
+-GETCHR		CALL RDCHR	; RX a Character
+-		CP   $03	; <ctrl-c> User break?
+-		RET  Z			
+-		CP   $20	; <space> or better?
+-		JR   C,GETCHR	; Do it again until we get something usable
+-		RET
+-;------------------------------------------------------------------------------
+-; Gets two ASCII characters from the console (assuming them to be HEX 0-9 A-F)
+-; Moves them into B and C, converts them into a byte value in A and updates a
+-; Checksum value in E
+-;------------------------------------------------------------------------------
+-GET2		CALL GETCHR	; Get us a valid character to work with
+-		LD   B,A	; Load it in B
+-		CALL GETCHR	; Get us another character
+-		LD   C,A	; load it in C
+-		CALL BCTOA	; Convert ASCII to byte
+-		LD   C,A	; Build the checksum
+-		LD   A,E
+-		SUB  C		; The checksum should always equal zero when checked
+-		LD   E,A	; Save the checksum back where it came from
+-		LD   A,C	; Retrieve the byte and go back
+-		RET
+-;------------------------------------------------------------------------------
+-; Gets four Hex characters from the console, converts them to values in HL
+-;------------------------------------------------------------------------------
+-GETHL		LD   HL,$0000	; Gets xxxx but sets Carry Flag on any Terminator
+-		CALL ECHO	; RX a Character
+-		CP   $0D	; <CR>?
+-		JR   NZ,GETX2	; other key		
+-SETCY		SCF		; Set Carry Flag
+-		RET             ; and Return to main program		
+-;------------------------------------------------------------------------------
+-; This routine converts last four hex characters (0-9 A-F) user types into a value in HL
+-; Rotates the old out and replaces with the new until the user hits a terminating character
+-;------------------------------------------------------------------------------
+-GETX		LD   HL,$0000	; CLEAR HL
+-GETX1		CALL ECHO	; RX a character from the console
+-		CP   $0D	; <CR>
+-		RET  Z		; quit
+-		CP   $2C	; <,> can be used to safely quit for multiple entries
+-		RET  Z		; (Like filling both DE and HL from the user)
+-GETX2		CP   $03	; Likewise, a <ctrl-C> will terminate clean, too, but
+-		JR   Z,SETCY	; It also sets the Carry Flag for testing later.
+-		ADD  HL,HL	; Otherwise, rotate the previous low nibble to high
+-		ADD  HL,HL	; rather slowly
+-		ADD  HL,HL	; until we get to the top
+-		ADD  HL,HL	; and then we can continue on.
+-		SUB  $30	; Convert ASCII to byte	value
+-		CP   $0A	; Are we in the 0-9 range?
+-		JR   C,GETX3	; Then we just need to sub $30, but if it is A-F
+-		SUB  $07	; We need to take off 7 more to get the value down to
+-GETX3		AND  $0F	; to the right hex value
+-		ADD  A,L	; Add the high nibble to the low
+-		LD   L,A	; Move the byte back to A
+-		JR   GETX1	; and go back for next character until he terminates
+-;------------------------------------------------------------------------------
+-; Convert ASCII characters in B C registers to a byte value in A
+-;------------------------------------------------------------------------------
+-BCTOA		LD   A,B	; Move the hi order byte to A
+-		SUB  $30	; Take it down from Ascii
+-		CP   $0A	; Are we in the 0-9 range here?
+-		JR   C,BCTOA1	; If so, get the next nybble
+-		SUB  $07	; But if A-F, take it down some more
+-BCTOA1		RLCA		; Rotate the nybble from low to high
+-		RLCA		; One bit at a time
+-		RLCA		; Until we
+-		RLCA		; Get there with it
+-		LD   B,A	; Save the converted high nybble
+-		LD   A,C	; Now get the low order byte
+-		SUB  $30	; Convert it down from Ascii
+-		CP   $0A	; 0-9 at this point?
+-		JR   C,BCTOA2	; Good enough then, but
+-		SUB  $07	; Take off 7 more if it's A-F
+-BCTOA2		ADD  A,B	; Add in the high order nybble
+-		RET
+-
+-;------------------------------------------------------------------------------
+-; Get a character and echo it back to the user
+-;------------------------------------------------------------------------------
+-ECHO		CALL	RDCHR
+-		CALL	WRCHR
+-		RET
+-
+-;------------------------------------------------------------------------------
+-; GOTO command
+-;------------------------------------------------------------------------------
+-GOTO		CALL GETHL		; ENTRY POINT FOR <G>oto addr. Get XXXX from user.
+-		RET  C			; Return if invalid       	
+-		PUSH HL
+-		RET			; Jump to HL address value
+-
+-;------------------------------------------------------------------------------
+-; LOAD Intel Hex format file from the console.
+-; [Intel Hex Format is:
+-; 1) Colon (Frame 0)
+-; 2) Record Length Field (Frames 1 and 2)
+-; 3) Load Address Field (Frames 3,4,5,6)
+-; 4) Record Type Field (Frames 7 and 8)
+-; 5) Data Field (Frames 9 to 9+2*(Record Length)-1
+-; 6) Checksum Field - Sum of all byte values from Record Length to and 
+-;   including Checksum Field = 0 ]
+-;------------------------------------------------------------------------------	
+-LOAD		LD   E,0	; First two Characters is the Record Length Field
+-		CALL GET2	; Get us two characters into BC, convert it to a byte <A>
+-		LD   D,A	; Load Record Length count into D
+-		CALL GET2	; Get next two characters, Memory Load Address <H>
+-		LD   H,A	; put value in H register.
+-		CALL GET2	; Get next two characters, Memory Load Address <L>
+-		LD   L,A	; put value in L register.
+-		CALL GET2	; Get next two characters, Record Field Type
+-		CP   $01	; Record Field Type 00 is Data, 01 is End of File
+-		JR   NZ,LOAD2	; Must be the end of that file
+-		CALL GET2	; Get next two characters, assemble into byte
+-		LD   A,E	; Recall the Checksum byte
+-		AND  A		; Is it Zero?
+-		JR   Z,LOAD00	; Print footer reached message
+-		JR   LOADERR	; Checksums don't add up, Error out
+-		
+-LOAD2		LD   A,D	; Retrieve line character counter	
+-		AND  A		; Are we done with this line?
+-		JR   Z,LOAD3	; Get two more ascii characters, build a byte and checksum
+-		CALL GET2	; Get next two chars, convert to byte in A, checksum it
+-		LD   (HL),A	; Move converted byte in A to memory location
+-		INC  HL		; Increment pointer to next memory location	
+-		LD   A,'.'	; Print out a "." for every byte loaded
+-		RST  08H	;
+-		DEC  D		; Decrement line character counter
+-		JR   LOAD2	; and keep loading into memory until line is complete
+-		
+-LOAD3		CALL GET2	; Get two chars, build byte and checksum
+-		LD   A,E	; Check the checksum value
+-		AND  A		; Is it zero?
+-		RET  Z
+-
+-LOADERR		LD   HL,CKSUMERR  ; Get "Checksum Error" message
+-		CALL PRINT	; Print Message from (HL) and terminate the load
+-		RET
+-
+-LOAD00  	LD   HL,LDETXT	; Print load complete message
+-		CALL PRINT
+-		RET
+-
+-;------------------------------------------------------------------------------
+-; Start BASIC command
+-;------------------------------------------------------------------------------
+-BASIC
+-    		LD HL,BASTXT
+-		CALL PRINT
+-		CALL GETCHR
+-		RET Z	; Cancel if CTRL-C
+-		AND  $5F ; uppercase
+-		CP 'C'
+-		JP  Z,BASCLD
+-		CP 'W'
+-		JP  Z,BASWRM
+-		RET
+-
+-;------------------------------------------------------------------------------
+-; Display Help command
+-;------------------------------------------------------------------------------
+-HELP   	 	LD   HL,HLPTXT	; Print Help message
+-		CALL PRINT
+-		RET
+-	
+-;------------------------------------------------------------------------------
+ ; CP/M load command
+ ;------------------------------------------------------------------------------
+-CPMLOAD
+-
+-    		LD HL,CPMTXT
+-		CALL PRINT
+-		CALL GETCHR
+-		RET Z	; Cancel if CTRL-C
+-		AND  $5F ; uppercase
+-		CP 'Y'
+-		JP  Z,CPMLOAD2
+-		RET
+-CPMTXT
+-		.BYTE	$0D,$0A
+-		.TEXT	"Boot CP/M?"
+-		.BYTE	$00
+ 
+ CPMTXT2
+ 		.BYTE	$0D,$0A
+@@ -868,43 +631,12 @@
+ 
+ ;------------------------------------------------------------------------------
+ 
+-SIGNON	.BYTE	"Z80 SBC Boot ROM 1.1"
+-		.BYTE	" by G. Searle"
+-		.BYTE	$0D,$0A
+-		.BYTE	"Type ? for options"
+-		.BYTE	$0D,$0A,$00
+-
+-BASTXT
++SIGNON	.BYTE	"GoCPM Boot ROM 1.1"
++		.BYTE	" by smbaker (original by G. Searle)"
+ 		.BYTE	$0D,$0A
+-		.TEXT	"Cold or Warm ?"
+-		.BYTE	$0D,$0A,$00
+-
+-CKSUMERR	.BYTE	"Checksum error"
+-		.BYTE	$0D,$0A,$00
+-
+-INITTXT  
+-		.BYTE	$0C
+-		.TEXT	"Press [SPACE] to activate console"
+-		.BYTE	$0D,$0A, $00
+-
+-LDETXT  
+-		.TEXT	"Load complete."
+-		.BYTE	$0D,$0A, $00
+-
+-
+-HLPTXT
+-		.BYTE	$0D,$0A
+-		.TEXT	"R           - Reset"
+-		.BYTE	$0D,$0A
+-		.TEXT	"BC or BW    - ROM BASIC Cold or Warm"
+-		.BYTE	$0D,$0A
+-		.TEXT	"X           - Boot CP/M (load $D000-$FFFF from disk)"
+-		.BYTE	$0D,$0A
+-		.TEXT	":nnnnnn...  - Load Intel-Hex file record"
+-		.BYTE	$0D,$0A
+-        	.BYTE   $00
++		.BYTE	$00
+ 
+ ;------------------------------------------------------------------------------
+ 
+-FINIS		.END	
++FINIS		.END
+ 
+--- ../download/cpm/source/monitor.asm	2013-09-05 23:46:18.000000000 -0700
++++ ../basic_work/sccpm/monitor.asm	2016-09-04 10:18:26.000000000 -0700
+@@ -29,20 +29,20 @@
+ CLS		.EQU	0CH
+ 
+ ; CF registers
+-CF_DATA		.EQU	$10
+-CF_FEATURES	.EQU	$11
+-CF_ERROR	.EQU	$11
+-CF_SECCOUNT	.EQU	$12
+-CF_SECTOR	.EQU	$13
+-CF_CYL_LOW	.EQU	$14
+-CF_CYL_HI	.EQU	$15
+-CF_HEAD		.EQU	$16
+-CF_STATUS	.EQU	$17
+-CF_COMMAND	.EQU	$17
+-CF_LBA0		.EQU	$13
+-CF_LBA1		.EQU	$14
+-CF_LBA2		.EQU	$15
+-CF_LBA3		.EQU	$16
++CF_DATA		.EQU	$E0
++CF_FEATURES	.EQU	CF_DATA+1
++CF_ERROR	.EQU	CF_DATA+1
++CF_SECCOUNT	.EQU	CF_DATA+2
++CF_SECTOR	.EQU	CF_DATA+3
++CF_CYL_LOW	.EQU	CF_DATA+4
++CF_CYL_HI	.EQU	CF_DATA+5
++CF_HEAD		.EQU	CF_DATA+6
++CF_STATUS	.EQU	CF_DATA+7
++CF_COMMAND	.EQU	CF_DATA+7
++CF_LBA0		.EQU	CF_DATA+3
++CF_LBA1		.EQU	CF_DATA+4
++CF_LBA2		.EQU	CF_DATA+5
++CF_LBA3		.EQU	CF_DATA+6
+ 
+ ;CF Features
+ CF_8BIT		.EQU	1
+@@ -68,34 +68,38 @@
+ RTS_HIGH	.EQU	0E8H
+ RTS_LOW		.EQU	0EAH
+ 
+-SIOA_D		.EQU	$00
+-SIOA_C		.EQU	$02
+-SIOB_D		.EQU	$01
+-SIOB_C		.EQU	$03
+-
+-		.ORG	$4000
+-serABuf		.ds	SER_BUFSIZE
+-serAInPtr	.ds	2
+-serARdPtr	.ds	2
+-serABufUsed	.ds	1
+-serBBuf		.ds	SER_BUFSIZE
+-serBInPtr	.ds	2
+-serBRdPtr	.ds	2
+-serBBufUsed	.ds	1
+-
+-primaryIO	.ds	1
+-secNo		.ds	1
+-dmaAddr		.ds	2
+-
+-stackSpace	.ds	32
+-STACK   	.EQU    $	; Stack top
++; Address of CTC for PORT B serial for setting baud rates
++CTC_PORTB       .EQU     91H
+ 
++SIOA_D		.EQU	$80
++SIOA_C		.EQU	SIOA_D+2 ;$02
++SIOB_D		.EQU	SIOA_D+1 ;$01
++SIOB_C		.EQU	SIOA_D+3 ;$03
++
++serABuf         .EQU     $8000
++serAInPtr       .EQU     serABuf+SER_BUFSIZE
++serARdPtr       .EQU     serAInPtr+2
++serABufUsed     .EQU     serARdPtr+2
++
++serAInMask      .EQU     serAInPtr&$FF
++
++serBBuf         .EQU     $8050
++serBInPtr       .EQU     serBBuf+SER_BUFSIZE
++serBRdPtr       .EQU     serBInPtr+2
++serBBufUsed     .EQU     serBRdPtr+2
++
++serBInMask      .EQU     serBInPtr&$FF
++
++primaryIO       .EQU    serBBufUsed+2
++secNo           .EQU    primaryIO+1
++dmaAddr         .EQU    secNo+1
++TEMPSTACK       .EQU    dmaAddr+2+32
+ 
+ ;------------------------------------------------------------------------------
+ ;                         START OF MONITOR ROM
+ ;------------------------------------------------------------------------------
+ 
+-MON		.ORG	$0000		; MONITOR ROM RESET VECTOR
++   		.ORG	$0000		; MONITOR ROM RESET VECTOR
+ ;------------------------------------------------------------------------------
+ ; Reset
+ ;------------------------------------------------------------------------------
+@@ -129,82 +133,92 @@
+ RST18		JP	CKINCHAR
+ 
+ ;------------------------------------------------------------------------------
+-; SIO Vector = 0x60
++; SIO Vector = 0x38
+ ;------------------------------------------------------------------------------
+ 
+-		.ORG	$0060
+-		.DW	serialInt
++		.ORG	$0038
++		JP	serialInt
+ 
+ 
+ ;------------------------------------------------------------------------------
+-; Serial interrupt handlers
+-; Same interrupt called if either of the inputs receives a character
+-; so need to check the status of each SIO input.
+-;------------------------------------------------------------------------------
+-serialInt:	PUSH	AF
+-		PUSH	HL
+-
+-		; Check if there is a char in channel A
+-		; If not, there is a char in channel B
+-		SUB	A
+-		OUT 	(SIOA_C),A
+-		IN   	A,(SIOA_C)	; Status byte D2=TX Buff Empty, D0=RX char ready	
+-		RRCA			; Rotates RX status into Carry Flag,	
+-		JR	NC, serialIntB
+-
+-serialIntA:
+-		LD	HL,(serAInPtr)
+-		INC	HL
+-		LD	A,L
+-		CP	(serABuf+SER_BUFSIZE) & $FF
+-		JR	NZ, notAWrap
+-		LD	HL,serABuf
+-notAWrap:
+-		LD	(serAInPtr),HL
+-		IN	A,(SIOA_D)
+-		LD	(HL),A
+-
+-		LD	A,(serABufUsed)
+-		INC	A
+-		LD	(serABufUsed),A
+-		CP	SER_FULLSIZE
+-		JR	C,rtsA0
+-	        LD   	A,$05
+-		OUT  	(SIOA_C),A
+-	        LD   	A,RTS_HIGH
+-		OUT  	(SIOA_C),A
+-rtsA0:
+-		POP	HL
+-		POP	AF
+-		EI
+-		RETI
++serialInt:      PUSH     AF
++                PUSH     HL
++
++                SUB      A
++                OUT      (SIOA_C),A
++                IN       A, (SIOA_C)
++                RRCA
++                JR       NC, check2
++
++                IN       A,(SIOA_D)
++                PUSH     AF
++                LD       A,(serABufUsed)
++                CP       SER_BUFSIZE     ; If full then ignore
++                JR       NZ,notFull
++                POP      AF
++                JR       check2
++
++notFull:        LD       HL,(serAInPtr)
++                INC      HL
++                LD       A,L             ; Only need to check low byte becasuse buffer<256 bytes
++                CP       serAInMask
++                JR       NZ, notWrap
++                LD       HL,serABuf
++notWrap:        LD       (serAInPtr),HL
++                POP      AF
++                LD       (HL),A
++                LD       A,(serABufUsed)
++                INC      A
++                LD       (serABufUsed),A
++                CP       SER_FULLSIZE
++                JR       C,check2
++                ; set rts high
++                LD       A, $05
++                OUT      (SIOA_C),A
++                LD       A,RTS_HIGH
++                OUT      (SIOA_C),A
++
++; port 2
++
++check2:         SUB      A
++                OUT      (SIOB_C),A
++                IN       A, (SIOB_C)
++                RRCA
++                JR       NC, rts0
++
++                IN       A,(SIOB_D)
++                PUSH     AF
++                LD       A,(serBBufUsed)
++                CP       SER_BUFSIZE     ; If full then ignore
++                JR       NZ,notFull2
++                POP      AF
++                JR       rts0
++
++notFull2:       LD       HL,(serBInPtr)
++                INC      HL
++                LD       A,L             ; Only need to check low byte becasuse buffer<256 bytes
++                CP       serBInMask
++                JR       NZ, notWrap2
++                LD       HL,serBBuf
++notWrap2:       LD       (serBInPtr),HL
++                POP      AF
++                LD       (HL),A
++                LD       A,(serBBufUsed)
++                INC      A
++                LD       (serBBufUsed),A
++                CP       SER_FULLSIZE
++                JR       C,rts0
++                ; set rts high
++                LD       A, $05
++                OUT      (SIOB_C),A
++                LD       A,RTS_HIGH
++                OUT      (SIOB_C),A
+ 
+-serialIntB:
+-		LD	HL,(serBInPtr)
+-		INC	HL
+-		LD	A,L
+-		CP	(serBBuf+SER_BUFSIZE) & $FF
+-		JR	NZ, notBWrap
+-		LD	HL,serBBuf
+-notBWrap:
+-		LD	(serBInPtr),HL
+-		IN	A,(SIOB_D)
+-		LD	(HL),A
++rts0:           POP      HL
++                POP      AF
+ 
+-		LD	A,(serBBufUsed)
+-		INC	A
+-		LD	(serBBufUsed),A
+-		CP	SER_FULLSIZE
+-		JR	C,rtsB0
+-	        LD   	A,$05
+-		OUT  	(SIOB_C),A
+-	        LD   	A,RTS_HIGH
+-		OUT  	(SIOB_C),A
+-rtsB0:
+-		POP	HL
+-		POP	AF
+-		EI
+-		RETI
++                EI
++                RETI
+ 
+ ;------------------------------------------------------------------------------
+ ; Console input routine
+@@ -224,7 +238,7 @@
+ 		LD	HL,(serARdPtr)
+ 		INC	HL
+ 		LD	A,L
+-		CP	(serABuf+SER_BUFSIZE) & $FF
++		CP	serAInMask
+ 		JR	NZ, notRdWrapA
+ 		LD	HL,serABuf
+ notRdWrapA:
+@@ -259,7 +273,7 @@
+ 		LD	HL,(serBRdPtr)
+ 		INC	HL
+ 		LD	A,L
+-		CP	(serBBuf+SER_BUFSIZE) & $FF
++		CP	serBInMask
+ 		JR	NZ, notRdWrapB
+ 		LD	HL,serBBuf
+ notRdWrapB:
+@@ -384,7 +398,8 @@
+ ;------------------------------------------------------------------------------
+ ; Initialise hardware and start main loop
+ ;------------------------------------------------------------------------------
+-INIT		LD   SP,STACK		; Set the Stack Pointer
++INIT            LD        HL,TEMPSTACK    ; Temp stack
++                LD        SP,HL           ; Set up a temporary stack
+ 
+ 		LD	HL,serABuf
+ 		LD	(serAInPtr),HL
+@@ -398,6 +413,12 @@
+ 		LD	(serABufUsed),A
+ 		LD	(serBBufUsed),A
+ 
++;       Baud generator for 2nd serial port, default to 115200
++               LD       A, 5DH
++               OUT      (CTC_PORTB), A  ; 115200
++               LD       A, 2
++               OUT      (CTC_PORTB), A
++
+ ;	Initialise SIO
+ 
+ 		LD	A,$00
+@@ -432,7 +453,8 @@
+ 
+ 		LD	A,$04
+ 		OUT	(SIOB_C),A
+-		LD	A,$C4
++                ;LD      A,$44            ; X16, no parity, 1 stop
++                LD	A,$C4            ; X64, no parity, 1 stop
+ 		OUT	(SIOB_C),A
+ 
+ 		LD	A,$01
+@@ -442,9 +464,9 @@
+ 
+ 		LD	A,$02
+ 		OUT	(SIOB_C),A
+-		LD	A,$60		; INTERRUPT VECTOR ADDRESS
++		LD	A,$E0		; INTERRUPT VECTOR ADDRESS
+ 		OUT	(SIOB_C),A
+-	
++
+ 		LD	A,$03
+ 		OUT	(SIOB_C),A
+ 		LD	A,$E1
+@@ -455,11 +477,7 @@
+ 		LD	A,RTS_LOW
+ 		OUT	(SIOB_C),A
+ 
+-		; Interrupt vector in page 0
+-		LD	A,$00
+-		LD	I,A
+-
+-		IM	2
++		IM	1
+ 		EI
+ 
+ 		; Display the "Press space to start" message on both consoles
+@@ -906,5 +924,5 @@
+ 
+ ;------------------------------------------------------------------------------
+ 
+-FINIS		.END	
++FINIS		.END
+ 
+--- ../download/cpm/source/putsys.asm	2013-01-09 09:07:46.000000000 -0800
++++ ../basic_work/sccpm/putsys.asm	2016-08-30 21:14:34.000000000 -0700
+@@ -18,20 +18,20 @@
+ 
+ 
+ ; CF registers
+-CF_DATA		.EQU	$10
+-CF_FEATURES	.EQU	$11
+-CF_ERROR	.EQU	$11
+-CF_SECCOUNT	.EQU	$12
+-CF_SECTOR	.EQU	$13
+-CF_CYL_LOW	.EQU	$14
+-CF_CYL_HI	.EQU	$15
+-CF_HEAD		.EQU	$16
+-CF_STATUS	.EQU	$17
+-CF_COMMAND	.EQU	$17
+-CF_LBA0		.EQU	$13
+-CF_LBA1		.EQU	$14
+-CF_LBA2		.EQU	$15
+-CF_LBA3		.EQU	$16
++CF_DATA		.EQU	$E0
++CF_FEATURES	.EQU	CF_DATA+1
++CF_ERROR	.EQU	CF_DATA+1
++CF_SECCOUNT	.EQU	CF_DATA+2
++CF_SECTOR	.EQU	CF_DATA+3
++CF_CYL_LOW	.EQU	CF_DATA+4
++CF_CYL_HI	.EQU	CF_DATA+5
++CF_HEAD		.EQU	CF_DATA+6
++CF_STATUS	.EQU	CF_DATA+7
++CF_COMMAND	.EQU	CF_DATA+7
++CF_LBA0		.EQU	CF_DATA+3
++CF_LBA1		.EQU	CF_DATA+4
++CF_LBA2		.EQU	CF_DATA+5
++CF_LBA3		.EQU	CF_DATA+6
+ 
+ ;CF Features
+ CF_8BIT		.EQU	1
+@@ -47,7 +47,7 @@
+ 
+ ;================================================================================================
+ 
+-		.ORG	5000H		; Loader origin.
++		.ORG	8100H		; Loader origin.
+ 
+ 		CALL	printInline
+ 		.TEXT "CP/M System Transfer by G. Searle 2012"

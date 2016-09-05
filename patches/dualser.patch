@@ -1,4 +1,4 @@
---- ../grant_searle/basic32/bas32K.asm	2013-09-10 14:01:38.000000000 -0700
+--- ../download/basic32/bas32K.asm	2013-09-10 14:01:38.000000000 -0700
 +++ ../basic_work/scbasic/bas32k.asm	2016-08-30 16:32:50.000000000 -0700
 @@ -19,6 +19,16 @@
  ; Adapted for the freeware Zilog Macro Assembler 2.10 to produce
@@ -199,7 +199,7 @@
          JP      $0000           ; Restart (Normally Monitor Start)
  
  
---- ../grant_searle/basic32/bas32K.asm	2013-09-10 14:01:38.000000000 -0700
+--- ../download/basic32/bas32K.asm	2013-09-10 14:01:38.000000000 -0700
 +++ ../basic_work/scbasic/basdisk.asm	2016-09-04 12:26:20.000000000 -0700
 @@ -19,6 +19,23 @@
  ; Adapted for the freeware Zilog Macro Assembler 2.10 to produce
@@ -529,7 +529,7 @@
          JP      $0000           ; Restart (Normally Monitor Start)
  
  
---- ../grant_searle/basic32/int32K.asm	2013-09-10 23:04:20.000000000 -0700
+--- ../download/basic32/int32K.asm	2013-09-10 23:04:20.000000000 -0700
 +++ ../basic_work/scbasic/int32k.asm	2016-08-19 16:31:28.000000000 -0700
 @@ -21,15 +21,31 @@
  SER_FULLSIZE    .EQU     30H
@@ -869,7 +869,7 @@
 -              
 +
  .END
---- ../grant_searle/basic32/int32K.asm	2013-09-10 23:04:20.000000000 -0700
+--- ../download/basic32/int32K.asm	2013-09-10 23:04:20.000000000 -0700
 +++ ../basic_work/scbasic/intsio.asm	2016-09-05 15:45:18.000000000 -0700
 @@ -21,15 +21,33 @@
  SER_FULLSIZE    .EQU     30H

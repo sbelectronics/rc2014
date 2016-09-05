@@ -1,0 +1,281 @@
+--- ../download/xmodem.asm	2016-08-31 11:55:48.000000000 -0700
++++ ../cpm_apps/xmodem.asm	2016-08-31 22:47:28.000000000 -0700
+@@ -240,7 +240,7 @@
+ ; (If any of these would be useful to you, let me know...)
+ ;==============================================================
+ FALSE	equ	0
+-TRUE	equ	not FALSE
++TRUE	equ	1
+ 
+ VERBOS	equ	FALSE	;true enables several progress messages
+ 			;(Intended mainy for debugging)
+@@ -328,7 +328,7 @@
+ ;	jc	CRTST		;(10) CON:=CRT:
+ 
+ ;	...
+-	
++
+ ;CRTST:	in	<port>		;(10) get reader stat 
+ ;	ani	<mask>		;(7) test, set Z
+ ;	rz			;(11) return from BIOS
+@@ -420,11 +420,6 @@
+ ;*********************
+ 	org	USAREA		;normal place for CP/M programs
+ 
+-;********************************
+-; Run-time stack is in the COMBUF
+-;********************************
+-RSTACK:
+-
+ ;-----------------------------------------------------
+ ;Initialize, using code that gets wiped out by SECBUF,
+ ;returns with b=0 for receive, 1 for send. During the
+@@ -434,7 +429,6 @@
+ ;-----------------------------------------------------
+ 	lxi	SP,ISTACK	;initialization stack
+ 	call	INIT
+-	lxi	SP,RSTACK	;run-time stack in COMBUF
+ 
+ ;-------------------------------------------------
+ ;Send or receive, based on XMODE,  set by /S or /C
+@@ -569,7 +563,7 @@
+ 	jmp	REPCNT		;print block count, goto CP/M
+ 
+ ;***Function*******************************************
+-; Receive XMODEM file & save it to disk 
++; Receive XMODEM file & save it to disk
+ ; On Entry:
+ ;       FCB is valid
+ ;******************************************************
+@@ -678,7 +672,8 @@
+ ;waiting to start and we are in CRC mode (NAKCHR
+ ;=SELCRC), then send SELCRC instead of NAK
+ ;-----------------------------------------------
+-RXSERR:	call	CCTRLC		;user abort?
++RXSERR:
++        call	CCTRLC		;user abort?
+ 
+ 	call	PACERR		;..if allowed
+ 
+@@ -705,7 +700,8 @@
+ ;Got an SOH, at beginning of block. Now get header:
+ ;Block number, Complemented block number
+ ;--------------------------------------------------
+-RXSOH:	mvi	a,NAK		;we have received
++RXSOH:
++        mvi	a,NAK		;we have received
+ 	sta	NAKCHR		;..at least one SOH
+ 
+ 	call	RXBYT1		;Get block number
+@@ -763,7 +759,8 @@
+ 	jnz	PURGE		;no: try again, but 1st
+ 				;purge rest of CRC
+ 
+-CKCKSM:	call	RXBYT1		;2nd CRC byte or cksum
++CKCKSM:
++        call	RXBYT1		;2nd CRC byte or cksum
+ 	jc	RXSERR		;Carry means timeout
+ 
+ 	cmp	c		;Does it match?
+@@ -1190,13 +1187,13 @@
+ ;(8 bytes will be written here by /I2)
+ 
+ CRSTAT:	xra	a		;set z flag, so that default
+-	db	nop		;..routine will timeout
+-	db	nop
+-	db	nop
+-	db	nop
+-	db	nop
+-	db	nop
+-	db	nop
++	nop		;..routine will timeout
++	nop
++	nop
++	nop
++	nop
++	nop
++	nop
+ 
+ 	jz	WATCRX
+ 	pop	h
+@@ -1206,12 +1203,12 @@
+ 
+ CRDAT:	ora	a		;just make default faster
+ 	ret
+-	db	nop
+-	db	nop
+-	db	nop
+-	db	nop
+-	db	nop
+-	db	nop
++	nop
++	nop
++	nop
++	nop
++	nop
++	nop
+ 
+ 	ora	a		;clear carry
+ 	ret
+@@ -1467,7 +1464,7 @@
+ ; trashes psw,c
+ ;****************************************************
+ PACERR:	mvi	c,PACNAK
+-	db	LDA		;lda opcode skips 2 bytes
++        DB      $3A	;lda opcode skips 2 bytes
+ 
+ ;Hop into PACIFY
+ 
+@@ -1514,7 +1511,7 @@
+ ;******************
+ FDELET:	mvi	c,BDELET	;delete existing file
+ 	lxi	d,FCB
+-	db	LDA		;lda opcode skips 2 bytes
++	DB      $3A		;lda opcode skips 2 bytes
+ 
+ ;Hop into GOBDOS
+ 
+@@ -1579,6 +1576,61 @@
+ 				;..get return address
+ 	ret
+ 
++ILLOG:	xthl			;Save hl, get msg addr
++	push	b
++        push    psw
++
++IPLOOP2:	mov	a,m
++	ani	7Fh		;strip end marker
++
++        mov	c,a		;value to c for PRINTC
++        mvi     a, PUNCH
++        CALL    GOBIOS
++        mov     a,c
++
++	mov	a,m		;end?
++	inx	h		;Next byte
++	ora	a		;msb set?
++	jp	IPLOOP2		;Do all bytes of msg
++
++        pop     psw
++	pop	b
++	xthl			;Restore hl,
++				;..get return address
++	ret
++
++OUTHXA: push b
++        mov C, A
++        call OUTHX
++        pop b
++        ret
++
++OUTHX:  push psw
++        MOV     A,C
++        RAR             ;ROTATE
++        RAR             ; FOUR
++        RAR             ; BITS TO
++        RAR             ; RIGHT
++        CALL    HEX1    ;UPPER CHAR
++        MOV     A,C     ;LOWER CHAR
++        call    HEX1
++        pop     psw
++        ret
++
++HEX1:   push    b
++        push    psw
++        ANI     0FH     ;TAKE 4 BITS
++        ADI     90H
++        DAA             ;DAA TRICK
++        ACI     40H
++        DAA
++        mov     c,a
++        mvi     a, PUNCH
++        call    GOBIOS
++        pop     psw
++        pop     b
++        ret
++
+ ;***Subroutine*************************************
+ ;Check for Control-C on the console, and quit if so
+ ; On Exit:
+@@ -1611,7 +1663,7 @@
+ 
+ ;***Exit**********************************************
+ ;Abort - close file if writing, delete it if no blocks
+- received
++; received
+ ; ON Entry:
+ ;  de = abort message to print
+ ;  XMODE = 0 for receiving, <>0 for sending
+@@ -1723,6 +1775,14 @@
+ 			;FF disables pacifiers.
+ CPUMHZ:	db	2	;CPU speed in MHz (for timeouts)
+ 
++;********************************************
++; SMBAKER: relocated the stack here
++;********************************************
++	ds	256		;plenty of room
++ISTACK:
++        db      00              ;this byte seemed to get clobbered by something
++                                ; maybe it's just the SECBUF
++
+ ;******************************************************
+ ;Buffer for SBUFSZ disk sectors (same as XMODEM blocks)
+ ; This buffer over-writes the following initialization
+@@ -1933,7 +1993,7 @@
+ 
+ 	call	FDELET		;delete existing file
+ 
+-FILNEX:	xra	a		;no sectors yet
++FILNEX: xra	a		;no sectors yet
+ 	sta	SECCNT
+ 
+ ;------------------------
+@@ -1973,8 +2033,9 @@
+ 	call	TSETUP		;adjust for CPU speed
+ 	mvi	e,CIDEL*8	;initial delay in 1/8 secs
+ 
+-RIDEL:	call	RXTIMR		;(24+17=41)use Rx timer
+-	jnc	RIDEL		;(10)
++; SMBAKER -- why??
++;RIDEL:	call	RXTIMR		;(24+17=41)use Rx timer
++;	jnc	RIDEL		;(10)
+ 
+ ; 125 mS at 1MHz is 250000/24=5208
+ 
+@@ -2017,7 +2078,7 @@
+ 
+ ;***Subroutine*********************************
+ ;Initialization: parse command line, set up FCB
+-; return with b=0 for receive, 1 for send 
++; return with b=0 for receive, 1 for send
+ ;**********************************************
+ 
+ ;Set default CPU speed to 4MHZ if a Z80 is detected.
+@@ -2056,7 +2117,7 @@
+ 
+ ;BYTCNT = 0 here
+ 
+- if not VERBOS
++ if VERBOS==0
+ 	cnz	PARSE
+  endif
+  if VERBOS
+@@ -2650,7 +2711,7 @@
+ 	mov	a,c
+ 	ora	a
+ 	jz	MODIO1		;need a jz instead?
+-	mvi	m,JZ		;y: install jz opcode
++	mvi	m, $CA		;y: install jz opcode
+ MODIO1:
+ 
+ 	inx	h		;point to data port loc
+@@ -2898,9 +2959,4 @@
+ ;****************************************************
+ ICOMBF:	ds	80
+ 
+-;********************************************
+-; Stack space used only during initialization
+-;********************************************
+-	ds	64		;plenty of room
+-ISTACK:
+ 	END
