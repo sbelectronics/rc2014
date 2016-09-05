@@ -9,4 +9,5 @@ For use with SIO/2 board, contains the following programs, at 16k intervals, sel
 1. basic with dualser and disk extensions
 2. bank-1 switcher for use with supervisor
 3. CP/M monitor
-4. <unused>
+4. Boot directly to CP/M
+
