@@ -2,7 +2,9 @@ This directory contains patches that I have made to assembly source
 code on the Internet that I don't necessarily have permission 
 to redistribute the original.
 
-dualser.patch:
+## dualser.patch: ##
+   Original: http://searle.hostei.com/grant/z80/sbc_NascomBasic32k.zip
+
    Adds support for two 68B50 serial interfaces. 
    (see int32k.asm)
 
@@ -20,3 +22,13 @@ dualser.patch:
 
    Original was 32K basic by Grant Searle
    http://searle.hostei.com/grant/z80/sbc_NascomBasic32k.zip
+
+## cpm.patch ##
+   Original: http://searle.hostei.com/grant/cpm/z80sbcFiles.zip
+
+## xmodem.patch ##
+   Original: https://drive.google.com/folderview?id=0B-XdfCubTNJJR0duMlFUMWk3OUU&usp=sharing
+
+   Removes RXTIMR that was causing issues
+   Relocates stack to avoid overrun
+ 

@@ -1,11 +1,11 @@
-hexcompare.py 
+## hexcompare.py ## 
    compares two HEX files
 
-hexreloc.py
+## hexreloc.py ##
    change the starting address of a hex file
   
-hextosearle.py
+## hextosearle.py ##
    converts a hex file to format suitable for CP/M DOWNLOAD.COM
 
-hexmerge.py
+## hexmerge.py ##
    merge one hex file into another
