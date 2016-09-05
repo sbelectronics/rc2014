@@ -1,3 +1,7 @@
+# Python library for working with Intel Hex Files
+# by Scott M Baker
+# http://www.smbaker.com/
+
 import string
 import sys
 import time
@@ -88,10 +92,10 @@ class HexFile:
 
     def merge(self, hf):
         for i in range(0, self.addr):
-            self.bytes = [0] + self.bytes
+            self.bytes = [0xFF] + self.bytes
 
         while (hf.addr+len(hf.bytes)>len(self.bytes)):
-            self.bytes.append(0)
+            self.bytes.append(0xFF)
 
         for i in range(0, len(hf.bytes)):
             self.bytes[hf.addr+i] = hf.bytes[i]

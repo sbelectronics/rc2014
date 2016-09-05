@@ -6,3 +6,6 @@ hexreloc.py
   
 hextosearle.py
    converts a hex file to format suitable for CP/M DOWNLOAD.COM
+
+hexmerge.py
+   merge one hex file into another

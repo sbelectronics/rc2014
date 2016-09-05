@@ -1,3 +1,7 @@
+# Python library for converting Intel Hex Files to DOWNLOAD.COM format
+# by Scott M Baker
+# http://www.smbaker.com/
+
 import string
 import sys
 import time

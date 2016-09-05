@@ -1,3 +1,7 @@
+# Python library for comparing two Intel Hex Files
+# by Scott M Baker
+# http://www.smbaker.com/
+
 import string
 import sys
 import time
