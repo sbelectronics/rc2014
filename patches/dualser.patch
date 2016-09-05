@@ -870,7 +870,7 @@
 +
  .END
 --- ../grant_searle/basic32/int32K.asm	2013-09-10 23:04:20.000000000 -0700
-+++ ../basic_work/scbasic/intsio.asm	2016-09-03 19:31:22.000000000 -0700
++++ ../basic_work/scbasic/intsio.asm	2016-09-05 15:45:18.000000000 -0700
 @@ -21,15 +21,33 @@
  SER_FULLSIZE    .EQU     30H
  SER_EMPTYSIZE   .EQU     5
@@ -1317,8 +1317,7 @@
 +               JP        $0293           ; Start BASIC WARM
 +
  SIGNON1:       .BYTE     CS
--               .BYTE     "Z80 SBC By Grant Searle",CR,LF,0
-+               .BYTE     "Scott Was Here" ; "Z80 SBC By Grant Searle",CR,LF,0
+                .BYTE     "Z80 SBC By Grant Searle",CR,LF,0
  SIGNON2:       .BYTE     CR,LF
                 .BYTE     "Cold or warm start (C or W)? ",0
 -              
