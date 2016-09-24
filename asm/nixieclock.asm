@@ -11,7 +11,9 @@ LB      equ     4       ; latch bit mask
 LF	equ	0AH
 CR	equ	0DH
 
-VARS    equ     8000h
+TIMEZONE equ    -7      ; -7 = PDT
+
+VARS    equ     8000h   ; space for storing variables
 
 HOUR    equ     VARS
 MIN     equ     HOUR+1
@@ -63,6 +65,7 @@ HANG:   jp      HANG
 
 ; =============================================================================
 ; GPS input
+;   A simple state machine for $GPGGA sentences
 ; =============================================================================
 
 CHCHAR: LD      A, 1
@@ -277,12 +280,13 @@ DISP:   PUSH    AF
 
         LD      A, (HOUR)
 
-        ADD     17            ; add 17 hours for PDT
+        ADD     24
+        ADD     TIMEZONE
 
-        ; convert 24hr to 12hr
-        CP      13
+        ; in case the timezone add caused us to wrap
+        CP      25
         JR      C, NOSUB
-        SUB     12
+        SUB     24
 NOSUB:
 
         ; convert 24hr to 12hr
@@ -389,6 +393,8 @@ DIV:    LD      B,8
         RET
 
 ; =============================================================================
+; Multiply by 10
+; =============================================================================
 MUL10:  PUSH    BC
         LD      C, A
         ADD     A,C
@@ -422,6 +428,10 @@ IPLOOP:	ld      A, (HL)
 	ex      (SP),HL		;Restore hl,
 	;; ..get return address
 	ret
+
+; =============================================================================
+; Print hex value Subroutine
+; =============================================================================
 
 OUTHXA: PUSH BC
         LD C, A
