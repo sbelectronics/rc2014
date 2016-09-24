@@ -18,7 +18,8 @@ LB      equ     4       ; latch bit mask
 LF	equ	0AH
 CR	equ	0DH
 
-TIMEZONE equ    -7      ; -7 = PDT
+TIMEZONE_DT equ    -7      ; -7 = PDT
+TIMEZONE_ST equ    -8      ; -8 = PST
 
 SPC_BUFSIZE     .EQU     8FH    ; size of phoneme buffer
 
@@ -32,7 +33,8 @@ VARS    equ     8100h   ; space for storing variables
 HOUR    equ     VARS
 MIN     equ     HOUR+1
 SEC     equ     MIN+1
-GPSST   equ     SEC+1   ; GPS state machine state number
+TZ      equ     SEC+1
+GPSST   equ     TZ+1   ; GPS state machine state number
 
 SPC_BUF     equ     GPSST+1
 SPC_IN_PTR  equ     SPC_BUF+SPC_BUFSIZE
@@ -54,9 +56,6 @@ START: 	call	ILPRNT
 
         call    TALKER_INIT
 
-        LD      A, 23
-        CALL    SAYNUM
-
         ; fill in the time with some defaults
         LD      A, 12
         LD      (HOUR),A
@@ -72,6 +71,7 @@ START: 	call	ILPRNT
         CALL    DISP
 
 RUNLOOP:
+        CALL    CKBTNS
         CALL    CHCHAR
 
         LD      A, (GPSST)
@@ -96,13 +96,43 @@ NOTCPLT:
 
 HANG:   jp      HANG
 
+; check buttons
+CKBTNS:
+        IN      A, SPC_PORT
+        AND     4
+        CP      4
+        JR      NZ, NOTBTN1
+        LD      A, (SPC_USED)
+        CP      0
+        JR      NZ, NOTBTN1
+        CALL    SAYTIME
+NOTBTN1:
+CKBTN2:
+        IN      A, SPC_PORT
+        AND     8
+        CP      8
+        JR      NZ, NOTBTN2
+        LD      A, TIMEZONE_ST
+        LD      (TZ), A
+        JR      CKBTN3
+NOTBTN2:
+        LD      A, TIMEZONE_DT
+        LD      (TZ), A
+CKBTN3:
+
+        RET
+
+; say the current time
 SAYTIME:
         CALL    CONVHR
         CALL    SAYNUM
 
         LD      A, (MIN)
-        CP      A, 0
-        JR      NZ, NOTZERO
+        CP      0
+        JR      Z, NOTZERO
+        LD      A, 1         ; pause between hour and minute
+        CALL    TALKER_PUT
+        LD      A, (MIN)
         CALL    SAYNUM
 NOTZERO:
 
@@ -110,13 +140,21 @@ NOTZERO:
         LD      A,B
         CP      0
         JR      NZ, SAYPM
+        LD      A, 3         ; pause before AM
+        CALL    TALKER_PUT
         LD      HL, D_AM
         CALL    SAY_HL
+        LD      A, 1         ; pause to stop output
+        CALL    TALKER_PUT
         RET
 
 SAYPM:
+        LD      A, 3          ; pause before PM
+        CALL    TALKER_PUT
         LD      HL, D_PM
         CALL    SAY_HL
+        LD      A, 1          ; pause to stop output
+        CALL    TALKER_PUT
         RET
 
 
@@ -375,10 +413,15 @@ DISP:   PUSH    AF
         ; applies timezone setting
         ; returns 12hr hour in A, B=0 if AM or B=1 if PM
 CONVHR: LD      A, (HOUR)
-        LD      B, 0
 
         ADD     24
-        ADD     TIMEZONE
+        PUSH    AF
+        LD      A, (TZ)       ; load the timezone
+        LD      B, A          ; into the B register
+        POP     AF
+        ADD     B             ; add the timezone (it's negative)
+
+        LD      B,0
 
         ; in case the timezone add caused us to wrap
         CP      25
@@ -780,8 +823,8 @@ D_90     DB 11, 6, 11, 2, 13, 19, 0
 D_HUN    DB 57, 15, 15, 11, 1, 33, 39, 12, 12, 0, 21, 0
 D_THO    DB 29, 24, 32, 43, 29, 0, 0, 11, 21, 0
 D_MIL    DB 16, 12, 12, 45, 49, 15, 11, 0
-D_AM     DB 20, 1, 7, 7, 16, 0
-D_PM     DB 9, 19, 1, 7, 7, 16, 0
+D_AM     DB 20, 3, 7, 7, 16, 0
+D_PM     DB 9, 19, 3, 7, 7, 16, 0
 
 P_0      .WORD D_0
 P_1      .WORD D_1
