@@ -1,6 +1,11 @@
 ; ==================================================================================
 ; Nixie Tube Clock
 ; smbaker@smbaker.com
+;
+; Nixie - port E0h
+; CTC - port 90h
+; SIO - port 80h  (PORTA = console, PORTB = GPS at 9600 baud)
+; SP0256A-AL2 - port 20h (optional)
 ; ==================================================================================
 
 SPC_PORT equ    20H
@@ -17,6 +22,11 @@ TIMEZONE equ    -7      ; -7 = PDT
 
 SPC_BUFSIZE     .EQU     8FH
 
+; ==================================================================================
+; Variables
+;    Put them at 8100h because int_sio's buffers are around 8000h - 80FFh.
+; ==================================================================================
+
 VARS    equ     8100h   ; space for storing variables
 
 HOUR    equ     VARS
@@ -31,6 +41,10 @@ SPC_USED    equ     SPC_RD_PTR+2
 SPC_IN_MASK equ     SPC_IN_PTR&$FF
 
 JUNK        equ     SPC_USED+2
+
+; ==================================================================================
+; Start of program
+; ==================================================================================
 
 
         .ORG    290h
