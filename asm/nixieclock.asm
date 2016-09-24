@@ -357,6 +357,8 @@ DISP:   PUSH    AF
         POP     AF
         RET
 
+        ; read hours and convert from 24h to 12h format
+        ; applies timezone setting
         ; returns 12hr hour in A, B=0 if AM or B=1 if PM
 CONVHR: LD      A, (HOUR)
         LD      B, 0
@@ -369,11 +371,9 @@ CONVHR: LD      A, (HOUR)
         JR      C, NOSUB
         SUB     24
 NOSUB:
-
         CP      12
         JR      C, NOTPM
         LD      B, 1
-
 NOTPM:
         ; convert 24hr to 12hr
         CP      13
@@ -382,6 +382,7 @@ NOTPM:
 NOSUB2:
         RET
 
+        ; latch the nixie display
 LATCH:  PUSH    AF
         LD      A, LB
         OUT     N_PORT, A
@@ -390,6 +391,7 @@ LATCH:  PUSH    AF
         POP     AF
         RET
 
+        ; shift a data bit onto the display
 SBIT:   PUSH AF
         AND     A, DB
         OUT     N_PORT, A     ; output data bit with clock low
@@ -400,6 +402,7 @@ SBIT:   PUSH AF
         POP     AF
         RET
 
+        ; shift a 4-bit digit to the display
 SDIG:   PUSH    AF
         PUSH    BC
         LD      C, 4          ; shift four bits
@@ -487,7 +490,10 @@ IPLOOP:	ld      A, (HL)
 	ret
 
 ; =============================================================================
-; Print hex value Subroutine
+; Print hex value Subroutines
+;    OUTHXA: print the 8-bit hex value in A
+;    OUTHXHL: print the 16-bit hex value in HL
+;    OUTHX: print the 8-bit hex value in C
 ; =============================================================================
 
 OUTHXA: PUSH BC
@@ -530,6 +536,12 @@ HEX1:   push    BC
 
 ; ============================================================================
 ; talker
+;    TALKER_INIT: initialize the talker
+;    TALKER_PUT: put a phoneme into the buffer
+;    TALKER_POLL: if a phoneme is in the buffer, and the sp0256 is ready, then
+;                 say the phoneme.
+;    SAYNUM: say a number from 0 to 59
+;    SAY_HL: say a list of phonemes pointed to by HL
 ; ============================================================================
 
 TALKER_INIT:
