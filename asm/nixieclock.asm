@@ -8,9 +8,9 @@
 ; SP0256A-AL2 - port 20h (optional)
 ; ==================================================================================
 
-SPC_PORT equ    20H
+SPC_PORT equ    20H     ; Speech synthesizer port
 
-N_PORT  equ     0E0H
+N_PORT  equ     0E0H    ; Nixie tube port
 DB      equ     1       ; data bit mask
 CB      equ     2       ; clock bit mask
 LB      equ     4       ; latch bit mask
@@ -20,7 +20,7 @@ CR	equ	0DH
 
 TIMEZONE equ    -7      ; -7 = PDT
 
-SPC_BUFSIZE     .EQU     8FH
+SPC_BUFSIZE     .EQU     8FH    ; size of phoneme buffer
 
 ; ==================================================================================
 ; Variables
@@ -32,7 +32,7 @@ VARS    equ     8100h   ; space for storing variables
 HOUR    equ     VARS
 MIN     equ     HOUR+1
 SEC     equ     MIN+1
-GPSST   equ     SEC+1
+GPSST   equ     SEC+1   ; GPS state machine state number
 
 SPC_BUF     equ     GPSST+1
 SPC_IN_PTR  equ     SPC_BUF+SPC_BUFSIZE
