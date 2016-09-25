@@ -15,3 +15,10 @@ $HEXRELOC ../basic_work/other/gobank1.hex 0x4000 > gobank1_4000.hex
 $HEXRELOC ../basic_work/sccpm/monitor.hex 0x8000 > monitor_8000.hex
 $HEXRELOC ../basic_work/sccpm/gocpm.hex 0xC000 > gocpm_C000.hex
 $HEXMERGE dbas_sio.hex gobank1_4000.hex monitor_8000.hex gocpm_C000.hex > brom_sio.hex
+
+# SIO boot rom, for Nixie Clock
+#   1) Nixie Clock
+#   2) Bank-1 switcher for use with supervisor board  
+
+cp ../asm/nixieclock_sio.hex nixieclock_sio.hex
+$HEXMERGE nixieclock_sio.hex gobank1_4000.hex > brom_nixieclock_sio.hex

@@ -7,5 +7,5 @@ HEXMERGE="python ../tools/hexmerge.py"
 $ZASM -u -x nixieclock.asm
 $ZASM -u -x intsio.asm
 
-$HEXMERGE nixieclock.hex intsio.hex > nixieclock_rom.hex
+$HEXMERGE nixieclock.hex intsio.hex > nixieclock_sio.hex
 
