@@ -200,7 +200,7 @@
  
  
 --- ../download/basic32/bas32K.asm	2013-09-10 14:01:38.000000000 -0700
-+++ ../basic_work/scbasic/basdisk.asm	2016-09-04 12:26:20.000000000 -0700
++++ ../basic_work/scbasic/basdisk.asm	2016-09-20 17:01:52.000000000 -0700
 @@ -19,6 +19,23 @@
  ; Adapted for the freeware Zilog Macro Assembler 2.10 to produce
  ; the original ROM code (checksum A934H). PA
@@ -488,10 +488,10 @@
 +        OUT     I1, A           ; 8-bit mode
 +        LD      A, $EF
 +        OUT     I7, A           ; execute command
-+        LD      A, $82
 +
 +        CALL    WAITRDY
 +
++        LD      A, $82
 +        OUT     I1, A           ; turn of write cache
 +        LD      A, $EF
 +        OUT     I7, A           ; execute command

@@ -181,7 +181,7 @@
  
  
  		CALL	printInline
---- ../download/cpm/source/monitor.asm	2013-09-05 23:46:18.000000000 -0700
+--- ../download/cpm/source/gocpm.asm	2016-10-02 12:24:29.000000000 -0700
 +++ ../basic_work/sccpm/gocpm.asm	2016-09-05 15:53:02.000000000 -0700
 @@ -29,20 +29,20 @@
  CLS		.EQU	0CH

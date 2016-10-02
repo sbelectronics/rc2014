@@ -8,6 +8,7 @@ diff -Naur ../download/xmodem.asm ../cpm_apps/xmodem.asm > xmodem.patch
 diff -Naur ../download/cpm/source/cbios64.asm ../basic_work/sccpm/cbios64.asm > cpm.patch
 diff -Naur ../download/cpm/source/cpm22.asm ../basic_work/sccpm/cpm22.asm >> cpm.patch
 diff -Naur ../download/cpm/source/form64.asm ../basic_work/sccpm/form64.asm >> cpm.patch
-diff -Naur ../download/cpm/source/monitor.asm ../basic_work/sccpm/gocpm.asm >> cpm.patch
+cp ../download/cpm/source/monitor.asm ../download/cpm/source/gocpm.asm
+diff -Naur ../download/cpm/source/gocpm.asm ../basic_work/sccpm/gocpm.asm >> cpm.patch
 diff -Naur ../download/cpm/source/monitor.asm ../basic_work/sccpm/monitor.asm >> cpm.patch
 diff -Naur ../download/cpm/source/putsys.asm ../basic_work/sccpm/putsys.asm >> cpm.patch

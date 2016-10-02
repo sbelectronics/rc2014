@@ -26,6 +26,17 @@ to redistribute the original.
 ## cpm.patch ##
    Original: http://searle.hostei.com/grant/cpm/z80sbcFiles.zip
 
+### instructions
+
+The following will copy the files from the download directory to
+basic_work/sccpm, which is our workspace where we will patch and
+assemble.
+
+    cd basic_work/sccpm
+    cp -a ../../download/cpm/source/* .
+    cp monitor.asm gocpm.asm
+    patch -p3 < ../../patches/cpm.patch
+
 ## xmodem.patch ##
    Original: https://drive.google.com/folderview?id=0B-XdfCubTNJJR0duMlFUMWk3OUU&usp=sharing
 
