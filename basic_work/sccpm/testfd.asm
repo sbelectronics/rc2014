@@ -107,7 +107,7 @@ WriteTestA:
                 LD      DE, (HSTSEC)
                 INC     DE
                 LD      A, E
-                CP      17
+                CP      18
                 JR      C, WT_NOWRAP
                 LD      DE, 0
                 LD      HL, (HSTTRK)
@@ -161,7 +161,7 @@ ReadTestA:
                 LD      DE, (HSTSEC)
                 INC     DE
                 LD      A, E
-                CP      17
+                CP      18
                 JR      C, RT_NOWRAP
                 LD      DE, 0
                 LD      HL, (HSTTRK)

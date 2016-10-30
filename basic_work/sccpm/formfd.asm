@@ -76,7 +76,7 @@ processSectorA:
                 LD      DE, (HSTSEC)
                 INC     DE
                 LD      A, E
-                CP      17
+                CP      18
                 JR      C, NOWRAP
                 LD      DE, 0
                 LD      HL, (HSTTRK)
@@ -114,26 +114,6 @@ PRINTRES:       CALL    printInline
                 CALL    printInline
                 .DB  CR, LF, 0
                 RET
-
-;================================================================================================
-; Utilities
-;================================================================================================
-
-printInline:
-		EX 	(SP),HL 	; PUSH HL and put RET ADDress into HL
-		PUSH 	AF
-		PUSH 	BC
-nextILChar:	LD 	A,(HL)
-		CP	0
-		JR	Z,endOfPrint
-		RST 	08H
-		INC 	HL
-		JR	nextILChar
-endOfPrint:	INC 	HL 		; Get past "null" terminator
-		POP 	BC
-		POP 	AF
-		EX 	(SP),HL 	; PUSH new RET ADDress on stack and restore HL
-		RET
 
 secNo:          .DB 0
 
