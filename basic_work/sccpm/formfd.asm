@@ -1,15 +1,8 @@
 ;==================================================================================
-; Contents of this file are copyright Grant Searle
+; Floppy Tester
+; http://www.smbaker.com/
 ;
-; You have permission to use this for NON COMMERCIAL USE ONLY
-; If you wish to use it elsewhere, please include an acknowledgement to myself.
-;
-; http://searle.hostei.com/grant/index.html
-;
-; eMail: home.micros01@btinternet.com
-;
-; If the above don't work, please perform an Internet search to see if I have
-; updated the web page hosting service.
+; Portions based on original source of Grant Searle (http://searle.hostei.com/grant/index.html)
 ;
 ;==================================================================================
 
