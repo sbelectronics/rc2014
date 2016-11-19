@@ -15,5 +15,6 @@ $ZASM -u -x gocpm.asm
 $ZASM -u -x cbiosfd.asm
 $ZASM -u -x formfd.asm
 $ZASM -u -x testfd.asm
+$ZASM -u -x putsysfd.asm
 
 $HEXRELOC download.hex 0x8100 > down8100.hex
