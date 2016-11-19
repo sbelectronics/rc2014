@@ -18,7 +18,7 @@ numSecs		.EQU	24	; Number of 512 sectors to be loaded
 
 		.ORG	8100H		; Format program origin.
 
-INIT            LD        HL,$F000        ;  lets get lots of stack space...
+INIT            LD        HL,biosstack    ;  lets get lots of stack space...
                 LD        SP,HL           ; Set up a temporary stack
 
 		CALL	printInline
@@ -40,9 +40,9 @@ INIT            LD        HL,$F000        ;  lets get lots of stack space...
                 LD      HL, loadAddr
                 LD      (DIOBUF), HL
 
-                ; start at block $0, which is Track 1 Sector 0
+                ; start at block $0, which is Track  Sector 0
                 ;    (track numbers start at 1, sectors start at 0)
-                LD      HL, 1
+                LD      HL, 0
                 LD      (HSTTRK), HL
                 LD      HL, $0
                 LD      (HSTSEC), HL
@@ -102,35 +102,16 @@ NOWRAP:
 
 HANG:           JP      HANG
 
-PRINTOP:        CALL    printInline
-                .DB "Write Track ", 0
-                CALL    OUTHXHL
-                CALL    printInline
-                .DB " Sector ",0
-                CALL    OUTHXDE
-                CALL    printInline
-                .DB  CR, LF, 0
-                RET
+		.DS	40h		; Start of BIOS stack area.
+biosstack:	.EQU	$
 
-PRINTRES:       CALL    printInline
-                .DB "Result ", 0
-                CALL    OUTHXA
-                CALL    printInline
-                .DB  CR, LF, 0
-                RET
+#define CONSOLE_MONITOR 1
 
 #include "fdstd.asm"
-
-FDENABLE        .EQU    1            ; TRUE FOR FLOPPY SUPPORT
-FDMODE          .EQU    FDMODE_SCOTT1    ; FDMODE_DIO, FDMODE_ZETA, FDMODE_DIDE, FDMODE_N8, FDMODE_DIO3
-FDTRACE         .EQU    0               ; 0=SILENT, 1=FATAL ERRORS, 2=ALL ERRORS, 3=EVERYTHING (ONLY RELEVANT IF FDENABLE = TRUE)
-FDMEDIA         .EQU    FDM144          ; FDM720, FDM144, FDM360, FDM120 (ONLY RELEVANT IF FDENABLE = TRUE)
-FDMEDIAALT      .EQU    FDM720          ; ALTERNATE MEDIA TO TRY, SAME CHOICES AS ABOVE (ONLY RELEVANT IF FDMAUTO = TRUE)
-FDMAUTO         .EQU    1            ; SELECT BETWEEN MEDIA OPTS ABOVE AUTOMATICALLY
-DSKYENABLE      .EQU    0
-
-#include "utils.asm"
+#include "fdconfig.asm"
 #include "fdutil.asm"
+#include "utils.asm"
 #include "fd.asm"
+#include "fdvars.asm"
 
                 .END

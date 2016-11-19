@@ -23,6 +23,7 @@ INIT            LD        HL,$F000        ;  lets get lots of stack space...
 
                 CALL    FD_INIT
 
+                LD      C, 0  ; XXX added this
                 LD      B, DOP_READID
                 CALL    FD_DISPATCH
 
@@ -41,15 +42,15 @@ INIT            LD        HL,$F000        ;  lets get lots of stack space...
 ; The drive uses 512 byte sectors, so 32 x 512 byte sectors per disk
 ; require initialisation
 
-;Drive 0 (A:) is slightly different due to reserved track, so DIR sector starts at 32
-		LD	A,$20
+;Drive 0 (A:) is slightly different due to reserved track, so DIR sector starts at $24
+		LD	A,$24
 		LD	(secNo),A
 
-                ; start at block $20, which is Track 2 Sector 15
+                ; start at block $24, which is Track 3 Sector 0
                 ;    (track numbers start at 1, sectors start at 0)
                 LD      HL, 2
                 LD      (HSTTRK), HL
-                LD      HL, $0E
+                LD      HL, $0
                 LD      (HSTSEC), HL
 
 processSectorA:
@@ -88,7 +89,7 @@ NOWRAP:
 		LD	A,(secNo)
 		INC	A
 		LD	(secNo),A
-		CP	$40
+		CP	$2C   ; $24 + 8
 		JR	NZ, processSectorA
 
 		CALL	printInline
@@ -97,23 +98,6 @@ NOWRAP:
 		.DB CR,LF,0
 
 HANG:           JP      HANG
-
-PRINTOP:        CALL    printInline
-                .DB "Write Track ", 0
-                CALL    OUTHXHL
-                CALL    printInline
-                .DB " Sector ",0
-                CALL    OUTHXDE
-                CALL    printInline
-                .DB  CR, LF, 0
-                RET
-
-PRINTRES:       CALL    printInline
-                .DB "Result ", 0
-                CALL    OUTHXA
-                CALL    printInline
-                .DB  CR, LF, 0
-                RET
 
 secNo:          .DB 0
 
@@ -173,18 +157,13 @@ dirData3:
 		.DB $E5,$20,$20,$20,$20,$20,$20,$20,$20,$20,$20,$20,$00,$00,$00,$00
 		.DB $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
 
+#define CONSOLE_MONITOR 1
+
 #include "fdstd.asm"
-
-FDENABLE        .EQU    1            ; TRUE FOR FLOPPY SUPPORT
-FDMODE          .EQU    FDMODE_SCOTT1    ; FDMODE_DIO, FDMODE_ZETA, FDMODE_DIDE, FDMODE_N8, FDMODE_DIO3
-FDTRACE         .EQU    3               ; 0=SILENT, 1=FATAL ERRORS, 2=ALL ERRORS, 3=EVERYTHING (ONLY RELEVANT IF FDENABLE = TRUE)
-FDMEDIA         .EQU    FDM144          ; FDM720, FDM144, FDM360, FDM120 (ONLY RELEVANT IF FDENABLE = TRUE)
-FDMEDIAALT      .EQU    FDM720          ; ALTERNATE MEDIA TO TRY, SAME CHOICES AS ABOVE (ONLY RELEVANT IF FDMAUTO = TRUE)
-FDMAUTO         .EQU    1            ; SELECT BETWEEN MEDIA OPTS ABOVE AUTOMATICALLY
-DSKYENABLE      .EQU    0
-
+#include "fdconfig.asm"
 #include "utils.asm"
 #include "fdutil.asm"
 #include "fd.asm"
+#include "fdvars.asm"
 
                 .END

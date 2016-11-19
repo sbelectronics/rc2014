@@ -24,6 +24,7 @@ INIT            LD        HL,$F000        ;  lets get lots of stack space...
 
                 CALL    FD_INIT
 
+                LD      C, 0  ; XXX added this
                 LD      B, DOP_READID
                 CALL    FD_DISPATCH
 
@@ -266,53 +267,13 @@ okay:
                 POP    HL
                 RET
 
-PRINTOP:        CALL    printInline
-                .DB " Track ", 0
-                CALL    OUTHXHL
-                CALL    printInline
-                .DB " Sector ",0
-                CALL    OUTHXDE
-                RET
-
-PRINTRES:       CALL    printInline
-                .DB " Result ", 0
-                CALL    OUTHXA
-                CALL    printInline
-                .DB  CR, LF, 0
-                RET
-
-;================================================================================================
-; Utilities
-;================================================================================================
-
-printInline:
-		EX 	(SP),HL 	; PUSH HL and put RET ADDress into HL
-		PUSH 	AF
-		PUSH 	BC
-nextILChar:	LD 	A,(HL)
-		CP	0
-		JR	Z,endOfPrint
-		RST 	08H
-		INC 	HL
-		JR	nextILChar
-endOfPrint:	INC 	HL 		; Get past "null" terminator
-		POP 	BC
-		POP 	AF
-		EX 	(SP),HL 	; PUSH new RET ADDress on stack and restore HL
-		RET
+#define CONSOLE_MONITOR 1
 
 #include "fdstd.asm"
-
-FDENABLE        .EQU    1            ; TRUE FOR FLOPPY SUPPORT
-FDMODE          .EQU    FDMODE_SCOTT1    ; FDMODE_DIO, FDMODE_ZETA, FDMODE_DIDE, FDMODE_N8, FDMODE_DIO3
-FDTRACE         .EQU    0               ; 0=SILENT, 1=FATAL ERRORS, 2=ALL ERRORS, 3=EVERYTHING (ONLY RELEVANT IF FDENABLE = TRUE)
-FDMEDIA         .EQU    FDM144          ; FDM720, FDM144, FDM360, FDM120 (ONLY RELEVANT IF FDENABLE = TRUE)
-FDMEDIAALT      .EQU    FDM720          ; ALTERNATE MEDIA TO TRY, SAME CHOICES AS ABOVE (ONLY RELEVANT IF FDMAUTO = TRUE)
-FDMAUTO         .EQU    1            ; SELECT BETWEEN MEDIA OPTS ABOVE AUTOMATICALLY
-DSKYENABLE      .EQU    0
-
+#include "fdconfig.asm"
 #include "utils.asm"
 #include "fdutil.asm"
 #include "fd.asm"
+#include "fdvars.asm"
 
                 .END
