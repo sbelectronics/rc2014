@@ -1,0 +1,51 @@
+name addr;
+device g16v8ma;
+partno x;
+date 1/1/1980;
+designer smbaker;
+company sbsoftware;
+revision 1;
+assembly x;
+location x;
+
+PIN 1 = !M1;
+PIN 2 = !RD;
+PIN 3 = !WR;
+PIN 4 = A7;
+PIN 5 = A6;
+PIN 6 = A5;
+PIN 7 = A4;
+PIN 8 = A3;
+PIN 9 = !IORQ;
+PIN 10 = GND;
+PIN 11 = A2;
+PIN 12 = NC;
+PIN 13 = !LED4;
+PIN 14 = !LED3;
+PIN 15 = !IOW;
+PIN 16 = A0;
+PIN 17 = A1;
+PIN 18 = !IOR;
+PIN 19 = !BBCS;
+PIN 20 = VCC;
+
+FIELD ALO = [A7..A0];
+
+$DEFINE ADDR_BBL_DAT 10
+$DEFINE ADDR_BBL_CS  11
+$DEFINE ADDR_LED     40
+
+BBSEL = (ALO:ADDR_BBL_DAT) # (ALO:ADDR_BBL_CS);
+
+/* We will run out of product terms if we try to decode LEDSEL all the way */
+LEDSEL = (!A7) & A6 & (!A5) & (!A4) & (!A3); /* 0x40 through 0x47 */
+
+BBCS = BBSEL;
+
+IOR = RD & IORQ & (!M1);
+IOW = WR & IORQ & (!M1);
+
+LED3 = (LEDSEL & IOW) # (LED3 & !(LEDSEL & IOR));
+
+LED4 = (IOR # IOW) & BBSEL;
+
