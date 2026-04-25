@@ -1,5 +1,6 @@
 #include "telnet.h"
 #include "config.h"
+#include "cdcmenu.h"
 
 #include <stdio.h>
 
@@ -56,12 +57,17 @@ static const char *verb_name(uint8_t v) {
 }
 
 static void log_in (uint8_t v, uint8_t o) {
+    if (cdcmenu_active()) return;
     printf("[telnet] <- %s %s (%u)\n", verb_name(v), opt_name(o), o);
 }
 static void log_out(uint8_t v, uint8_t o) {
+    if (cdcmenu_active()) return;
     printf("[telnet] -> %s %s (%u)\n", verb_name(v), opt_name(o), o);
 }
-static void log_msg(const char *m) { printf("[telnet] %s\n", m); }
+static void log_msg(const char *m) {
+    if (cdcmenu_active()) return;
+    printf("[telnet] %s\n", m);
+}
 
 #else
 

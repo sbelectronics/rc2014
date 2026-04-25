@@ -3,6 +3,7 @@
 #include "sio.h"
 
 #include "pico/stdlib.h"
+#include "pico/flash.h"
 #include "hardware/pio.h"
 #include "hardware/dma.h"
 #include "hardware/gpio.h"
@@ -275,6 +276,12 @@ static void __not_in_flash_func(rearm_trigger)(void) {
 // Core-1 entry point.
 // ------------------------------------------------------------------------
 void __not_in_flash_func(bus_core1_main)(void) {
+    // Register this core with the SDK's flash-safe machinery so core 0
+    // can call cfg_save() (flash_range_erase/program) without deadlock.
+    // Without this, flash_safe_execute on core 0 would hang waiting for
+    // an acknowledgement from us.
+    flash_safe_execute_core_init();
+
     sm_oe    = pio_claim_unused_sm(bus_pio, true);
     sm_read  = pio_claim_unused_sm(bus_pio, true);
     sm_write = pio_claim_unused_sm(bus_pio, true);

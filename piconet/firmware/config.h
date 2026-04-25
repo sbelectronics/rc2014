@@ -36,6 +36,12 @@
 // NO CARRIER and you need to know why. Off by default in normal use.
 #define PICONET_NET_DEBUG           1
 
+// Default state of the periodic USB-CDC heartbeat at boot. The user
+// can flip this at runtime via the configuration menu (HEARTBEAT
+// ON/OFF). Runtime changes do NOT persist across reboots — boot
+// always restores this default.
+#define PICONET_HEARTBEAT_DEFAULT   0
+
 // Pin map — locked by SCHEMATIC.md §4.7. Do not change without
 // changing hardware.
 #define PICONET_PIN_D0          0   // ..GP7 = D7

@@ -2,6 +2,8 @@
 #include "sio.h"
 #include "hayes.h"
 #include "bus.h"
+#include "cfg.h"
+#include "cdcmenu.h"
 #include "config.h"
 
 #include "pico/stdlib.h"
@@ -16,9 +18,13 @@
 #include <string.h>
 
 // USB-side debug logging for the dial path. Compiled out unless
-// PICONET_NET_DEBUG is non-zero in config.h.
+// PICONET_NET_DEBUG is non-zero in config.h. At runtime, also
+// suppressed while the user is in the configuration menu so the
+// prompt stays clean.
 #if PICONET_NET_DEBUG
-#define NET_LOG(fmt, ...) printf("[net] " fmt "\n", ##__VA_ARGS__)
+#define NET_LOG(fmt, ...) do { \
+    if (!cdcmenu_active()) printf("[net] " fmt "\n", ##__VA_ARGS__); \
+} while (0)
 #else
 #define NET_LOG(fmt, ...) ((void)0)
 #endif
@@ -214,8 +220,10 @@ static err_t accept_cb(void *arg, struct tcp_pcb *newpcb, err_t err) {
     telnet_init(&sio_channel(nc->ch)->telnet);
     telnet_start_active_server(&sio_channel(nc->ch)->telnet);
 #if PICONET_TELNET_DEBUG
-    printf("[telnet] accept on ch=%d, queued %u init bytes\n",
-           nc->ch, sio_channel(nc->ch)->telnet.pending_tx_n);
+    if (!cdcmenu_active()) {
+        printf("[telnet] accept on ch=%d, queued %u init bytes\n",
+               nc->ch, sio_channel(nc->ch)->telnet.pending_tx_n);
+    }
 #endif
     return ERR_OK;
 }
@@ -370,7 +378,7 @@ static void pump_tx(net_chan_t *nc) {
         //    escape these — they ARE IAC bytes.
         if (nc->telnet_engaged) {
 #if PICONET_TELNET_DEBUG
-            if (s->telnet.pending_tx_n > 0) {
+            if (s->telnet.pending_tx_n > 0 && !cdcmenu_active()) {
                 printf("[telnet] pump_tx (out) flushing %u IAC bytes (ch=%d)\n",
                        s->telnet.pending_tx_n, nc->ch);
             }
@@ -446,7 +454,7 @@ static void pump_tx(net_chan_t *nc) {
             //    wire — clients react to negotiation before deciding how
             //    to display data.
 #if PICONET_TELNET_DEBUG
-            if (s->telnet.pending_tx_n > 0) {
+            if (s->telnet.pending_tx_n > 0 && !cdcmenu_active()) {
                 printf("[telnet] pump_tx flushing %u IAC bytes (ch=%d)\n",
                        s->telnet.pending_tx_n, nc->ch);
             }
@@ -486,6 +494,29 @@ static volatile int wifi_last_err = 0;
 static volatile bool wifi_inited  = false;
 static volatile bool wifi_assoc   = false;
 
+bool net_wifi_associated(void) { return wifi_assoc; }
+
+bool net_get_ip_str(char *out, size_t cap) {
+    if (cap == 0) return false;
+    out[0] = 0;
+    if (!wifi_inited || !netif_default) return false;
+    const ip4_addr_t *ip = netif_ip4_addr(netif_default);
+    if (!ip || !ip4_addr_get_u32(ip)) return false;
+    snprintf(out, cap, "%s", ip4addr_ntoa(ip));
+    return true;
+}
+
+bool net_get_mac_str(char *out, size_t cap) {
+    if (cap == 0) return false;
+    out[0] = 0;
+    if (!wifi_inited) return false;
+    uint8_t mac[6];
+    if (cyw43_wifi_get_mac(&cyw43_state, CYW43_ITF_STA, mac) != 0) return false;
+    snprintf(out, cap, "%02x:%02x:%02x:%02x:%02x:%02x",
+             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    return true;
+}
+
 static bool wifi_try_connect(void) {
     if (!wifi_inited) {
         if (cyw43_arch_init() != 0) {
@@ -496,10 +527,11 @@ static bool wifi_try_connect(void) {
         wifi_inited = true;
     }
 
+    cfg_t *cfg = cfg_get();
     wifi_attempts++;
-    int err = cyw43_arch_wifi_connect_timeout_ms(PICONET_WIFI_SSID,
-                                                 PICONET_WIFI_PASSWORD,
-                                                 PICONET_WIFI_AUTH,
+    int err = cyw43_arch_wifi_connect_timeout_ms(cfg->wifi.ssid,
+                                                 cfg->wifi.psk,
+                                                 cfg_auth_to_cyw43(cfg->wifi.auth),
                                                  30000);
     if (err != 0) {
         wifi_last_err = err;
@@ -566,8 +598,13 @@ static void diag_tick(void) {
         next_hb = make_timeout_time_ms(2000);
     }
 
+    // No background output while the user is in the config menu —
+    // the prompt would get trashed.
+    if (cdcmenu_active()) return;
+
     // One-shot IP print as soon as DHCP returns one (only meaningful
-    // once cyw43 has been initialised).
+    // once cyw43 has been initialised). Always emitted regardless of
+    // the heartbeat toggle — it's a one-time provisioning event.
     if (!ip_printed && wifi_inited && netif_default) {
         const ip4_addr_t *ip = netif_ip4_addr(netif_default);
         if (ip && ip4_addr_get_u32(ip) != 0) {
@@ -582,65 +619,75 @@ static void diag_tick(void) {
     if (absolute_time_diff_us(get_absolute_time(), next_hb) > 0) return;
     next_hb = make_timeout_time_ms(5000);
 
-    uint32_t up_s = to_ms_since_boot(get_absolute_time()) / 1000;
+    // Heartbeat block — full diagnostic dump. Suppressed when the
+    // user has turned heartbeat off; the menu hint below always
+    // fires so they know how to get back in.
+    if (cdcmenu_heartbeat_enabled()) {
+        uint32_t up_s = to_ms_since_boot(get_absolute_time()) / 1000;
 
-    if (wifi_inited) {
-        int link = cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA);
-        const ip4_addr_t *ip = netif_default ? netif_ip4_addr(netif_default) : NULL;
-        printf("[hb %us] wifi=%d ip=%s attempts=%d lastErr=%d busRst=%lu\n",
-               (unsigned)up_s, link,
-               (ip && ip4_addr_get_u32(ip)) ? ip4addr_ntoa(ip) : "0.0.0.0",
-               wifi_attempts, wifi_last_err,
-               (unsigned long)bus_stats.reset_count);
-    } else {
-        printf("[hb %us] wifi=uninit attempts=%d lastErr=%d busRst=%lu\n",
-               (unsigned)up_s, wifi_attempts, wifi_last_err,
-               (unsigned long)bus_stats.reset_count);
-    }
+        if (wifi_inited) {
+            int link = cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA);
+            const ip4_addr_t *ip = netif_default ? netif_ip4_addr(netif_default) : NULL;
+            printf("[hb %us] wifi=%d ip=%s attempts=%d lastErr=%d busRst=%lu\n",
+                   (unsigned)up_s, link,
+                   (ip && ip4_addr_get_u32(ip)) ? ip4addr_ntoa(ip) : "0.0.0.0",
+                   wifi_attempts, wifi_last_err,
+                   (unsigned long)bus_stats.reset_count);
+        } else {
+            printf("[hb %us] wifi=uninit attempts=%d lastErr=%d busRst=%lu\n",
+                   (unsigned)up_s, wifi_attempts, wifi_last_err,
+                   (unsigned long)bus_stats.reset_count);
+        }
 
-    // Live GPIO snapshot (read on demand, no per-edge IRQ overhead).
-    bus_snapshot_t snap;
-    bus_snapshot(&snap);
-    printf("  live: A=0x%X /CS=%d /RD=%d /WR=%d /M1=%d RSTsense=%d\n",
-           snap.a, snap.cs, snap.rd, snap.wr, snap.m1, snap.reset_sense);
+        // Live GPIO snapshot (read on demand, no per-edge IRQ overhead).
+        bus_snapshot_t snap;
+        bus_snapshot(&snap);
+        printf("  live: A=0x%X /CS=%d /RD=%d /WR=%d /M1=%d RSTsense=%d\n",
+               snap.a, snap.cs, snap.rd, snap.wr, snap.m1, snap.reset_sense);
 
-    uint32_t total_r = 0, total_w = 0;
-    for (int i = 0; i < 16; i++) {
-        total_r += bus_stats.reads_per_reg[i];
-        total_w += bus_stats.writes_per_reg[i];
-    }
-    printf("  pio:   R=%lu W=%lu lastR=0x%X lastW=0x%X(=0x%02X)\n",
-           (unsigned long)total_r, (unsigned long)total_w,
-           bus_stats.last_read_reg,
-           bus_stats.last_write_reg, bus_stats.last_write_data);
-    if (total_r || total_w) {
-        printf("       perReg:");
+        uint32_t total_r = 0, total_w = 0;
         for (int i = 0; i < 16; i++) {
-            uint32_t r = bus_stats.reads_per_reg[i];
-            uint32_t w = bus_stats.writes_per_reg[i];
-            if (r || w) {
-                printf(" [%X]R%lu/W%lu",
-                       i, (unsigned long)r, (unsigned long)w);
-            }
+            total_r += bus_stats.reads_per_reg[i];
+            total_w += bus_stats.writes_per_reg[i];
         }
-        printf("\n");
+        printf("  pio:   R=%lu W=%lu lastR=0x%X lastW=0x%X(=0x%02X)\n",
+               (unsigned long)total_r, (unsigned long)total_w,
+               bus_stats.last_read_reg,
+               bus_stats.last_write_reg, bus_stats.last_write_data);
+        if (total_r || total_w) {
+            printf("       perReg:");
+            for (int i = 0; i < 16; i++) {
+                uint32_t r = bus_stats.reads_per_reg[i];
+                uint32_t w = bus_stats.writes_per_reg[i];
+                if (r || w) {
+                    printf(" [%X]R%lu/W%lu",
+                           i, (unsigned long)r, (unsigned long)w);
+                }
+            }
+            printf("\n");
+        }
+
+        for (int i = 0; i < SIO_NUM_CHANNELS; i++) {
+            sio_channel_state_t *s = sio_channel(i);
+            char modebuf[20] = "";
+            if (i >= SIO_CH_NET0) {
+                snprintf(modebuf, sizeof(modebuf), " hayes=%s",
+                         hayes_state_name(chans[i].hayes.state));
+            }
+            printf("  %s: conn=%d rx=%lu/%u tx=%lu/%u%s\n",
+                   channel_name(i), (int)s->connected,
+                   (unsigned long)ringbuf_count(&s->rx),
+                   (unsigned)PICONET_RX_RING_SIZE,
+                   (unsigned long)ringbuf_count(&s->tx),
+                   (unsigned)PICONET_TX_RING_SIZE,
+                   modebuf);
+        }
     }
 
-    for (int i = 0; i < SIO_NUM_CHANNELS; i++) {
-        sio_channel_state_t *s = sio_channel(i);
-        char modebuf[20] = "";
-        if (i >= SIO_CH_NET0) {
-            snprintf(modebuf, sizeof(modebuf), " hayes=%s",
-                     hayes_state_name(chans[i].hayes.state));
-        }
-        printf("  %s: conn=%d rx=%lu/%u tx=%lu/%u%s\n",
-               channel_name(i), (int)s->connected,
-               (unsigned long)ringbuf_count(&s->rx),
-               (unsigned)PICONET_RX_RING_SIZE,
-               (unsigned long)ringbuf_count(&s->tx),
-               (unsigned)PICONET_TX_RING_SIZE,
-               modebuf);
-    }
+    // Menu hint. Always fires (when not in the menu and the timer
+    // elapsed) so the user always has a reminder of how to get in,
+    // whether or not heartbeat output is enabled.
+    printf("  [press any key on USB CDC for the configuration menu]\n");
 }
 
 // ----- main loop ------------------------------------------------------
@@ -664,28 +711,40 @@ void net_core0_main(void) {
     absolute_time_t next_wifi_attempt = nil_time;
 
     for (;;) {
-        // Drive WiFi connection state forward.
-        if (!wifi_assoc) {
-            if (is_nil_time(next_wifi_attempt) ||
-                absolute_time_diff_us(get_absolute_time(), next_wifi_attempt) <= 0) {
-                printf("WiFi: connecting to '%s' (attempt %d)...\n",
-                       PICONET_WIFI_SSID, wifi_attempts + 1);
-                if (wifi_try_connect()) {
-                    printf("WiFi: associated\n");
-                    gpio_put(PICONET_PIN_LED_LINK, 1);
-                } else {
-                    printf("WiFi: attempt failed (err=%d), retrying in 5s\n",
-                           wifi_last_err);
-                    next_wifi_attempt = make_timeout_time_ms(5000);
+        // Always-responsive USB-CDC menu. Polled every iteration so
+        // any keystroke from the host drops into provisioning mode.
+        cdcmenu_poll();
+
+        // Pause all bring-up work while the user is in the menu.
+        // Otherwise a half-edited config (e.g. SSID set but PSK still
+        // empty) would kick off a doomed connect attempt mid-prompt
+        // and trash the menu output. WiFi attempts resume on EXIT.
+        if (!cdcmenu_active()) {
+            // Drive WiFi connection state forward — only if we have a
+            // usable config. With no SSID we sit idle and wait for the
+            // user to provision via the USB-CDC menu (then REBOOT).
+            if (!wifi_assoc && cfg_is_usable()) {
+                if (is_nil_time(next_wifi_attempt) ||
+                    absolute_time_diff_us(get_absolute_time(), next_wifi_attempt) <= 0) {
+                    printf("WiFi: connecting to '%s' (attempt %d)...\n",
+                           cfg_get()->wifi.ssid, wifi_attempts + 1);
+                    if (wifi_try_connect()) {
+                        printf("WiFi: associated\n");
+                        gpio_put(PICONET_PIN_LED_LINK, 1);
+                    } else {
+                        printf("WiFi: attempt failed (err=%d), retrying in 5s\n",
+                               wifi_last_err);
+                        next_wifi_attempt = make_timeout_time_ms(5000);
+                    }
                 }
+            } else if (wifi_assoc && !listeners_started) {
+                if (!start_listener(&chans[SIO_CH_UART0], PICONET_UART0_LISTEN_PORT))
+                    printf("UART0 listen on %d failed\n", PICONET_UART0_LISTEN_PORT);
+                if (!start_listener(&chans[SIO_CH_UART1], PICONET_UART1_LISTEN_PORT))
+                    printf("UART1 listen on %d failed\n", PICONET_UART1_LISTEN_PORT);
+                listeners_started = true;
+                printf("PICONET ready\n");
             }
-        } else if (!listeners_started) {
-            if (!start_listener(&chans[SIO_CH_UART0], PICONET_UART0_LISTEN_PORT))
-                printf("UART0 listen on %d failed\n", PICONET_UART0_LISTEN_PORT);
-            if (!start_listener(&chans[SIO_CH_UART1], PICONET_UART1_LISTEN_PORT))
-                printf("UART1 listen on %d failed\n", PICONET_UART1_LISTEN_PORT);
-            listeners_started = true;
-            printf("PICONET ready\n");
         }
 
         // TCP/Hayes machinery is only safe once lwIP and the listeners

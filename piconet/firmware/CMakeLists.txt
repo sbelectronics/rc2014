@@ -18,6 +18,8 @@ add_executable(piconet
     net.c
     hayes.c
     telnet.c
+    cfg.c
+    cdcmenu.c
 )
 
 pico_generate_pio_header(piconet ${CMAKE_CURRENT_LIST_DIR}/bus_pio.pio)
@@ -29,9 +31,12 @@ target_include_directories(piconet PRIVATE
 target_link_libraries(piconet
     pico_stdlib
     pico_multicore
+    pico_flash
     hardware_pio
     hardware_dma
     hardware_irq
+    hardware_flash
+    hardware_watchdog
     pico_cyw43_arch_lwip_threadsafe_background
 )
 

@@ -2,6 +2,8 @@
 #include "sio.h"
 #include "bus.h"
 #include "net.h"
+#include "cfg.h"
+#include "cdcmenu.h"
 
 #include "pico/stdlib.h"
 #include "pico/multicore.h"
@@ -15,6 +17,14 @@ int main(void) {
     gpio_set_dir(PICONET_PIN_LED_ACT, GPIO_OUT);
     gpio_put(PICONET_PIN_LED_ACT, 0);
 
+    // Load persistent configuration (or fall back to config_local.h
+    // defaults / unconfigured) before anyone reads cfg_get().
+    cfg_init();
+
+    // USB-CDC config menu state. Polled from net_core0_main; reachable
+    // from the host by sending any byte over the CDC interface.
+    cdcmenu_init();
+
     // Shared SIO state must be ready before either core touches it.
     sio_init();
 
@@ -22,7 +32,7 @@ int main(void) {
     // bus-related GPIOs forever.
     multicore_launch_core1(bus_core1_main);
 
-    // Core 0 runs WiFi + LWIP + the Hayes parsers.
+    // Core 0 runs WiFi + lwIP + the Hayes parsers + the menu pump.
     net_core0_main();
 
     // Unreachable.
