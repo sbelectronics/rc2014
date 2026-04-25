@@ -1,0 +1,234 @@
+; PICONET bus interface — four PIO state machines + DMA chain that
+; together handle Z80 bus cycles with deterministic sub-150 ns response
+; from /CS LOW to bus drive. ARM is NOT in the read response path.
+;
+; Pin layout (SCHEMATIC.md §4.7 + config.h):
+;   GP0..GP7  = D0..D7        (bidir, U2 '245 B side)
+;   GP8..GP11 = A0..A3        (input from U3 B side)
+;   GP12      = /CS           (input from U3 B side, jumper-selected)
+;   GP13      = /RD           (input from U3 B side)
+;   GP14      = /WR           (input from U3 B side)
+;   GP16      = DIR_DATA      (output to U2; 0 = Pico->bus, 1 = bus->Pico)
+;   GP17      = /OE_DATA      (output to U2; active LOW)
+;
+; Architecture (DMA pipeline — ARM not in read response path):
+;   * SM_oe   — drives /OE tracking /CS (U2 enabled only during our cycle)
+;   * SM_read — on read cycle, computes a POINTER &shadow[addr] using
+;               the preloaded Y register (= shadow_base >> 6) and a few
+;               PIO instructions. Pushes the pointer to its RX FIFO.
+;               DMA chain handles the rest: trigger channel reads the
+;               pointer and writes it to fetch channel's al3 trigger
+;               (sets fetch's READ_ADDR + triggers fetch); fetch
+;               channel reads the shadow word and writes it to this
+;               SM's TX FIFO. SM pulls and drives the bus.
+;
+;               Total round-trip: ~7 PIO cycles + 4 DMA cycles + PIO
+;               drive = ~150 ns from /CS LOW to bus drive. ARM is
+;               completely out of the response path.
+;
+;   * SM_write — captures Z80 writes to RX FIFO for ARM to process.
+;   * SM_log  — fires AFTER /RD HIGH, pushes the register address to
+;               its RX FIFO so ARM can run post-read side effects
+;               (ringbuf pop, shadow refresh) safely.
+;
+; The DMA fetch channel completes after each transfer (count=1) and
+; raises an IRQ. ARM's IRQ handler rearms count=1 — happens within
+; ~200 ns of completion, well before the Z80's next IO cycle (~1.6 µs
+; minimum at 7.37 MHz).
+
+; ----------------------------------------------------------------------
+; piconet_oe — drive /OE based on /CS.
+;
+; Pin config: in_base=12 (GP12=/CS); sideset_base=17 (GP17=/OE).
+.program piconet_oe
+.side_set 1
+.wrap_target
+    wait 0 pin 0  side 1    ; while /CS HIGH, /OE HIGH (U2 disabled)
+    wait 1 pin 0  side 0    ; while /CS LOW,  /OE LOW  (U2 enabled)
+.wrap
+
+; ----------------------------------------------------------------------
+; piconet_read — handle Z80 read cycles. Computes a POINTER to the
+; shadow entry and pushes it; the DMA chain fetches the shadow word
+; and writes it back to the TX FIFO without ARM involvement.
+;
+; Pin config:
+;   in_base       = 8   (`in pins, 4` captures A0..A3 from GP8..GP11;
+;                        `wait pin 4` watches GP12 = /CS;
+;                        `wait pin 5` watches GP13 = /RD)
+;   out_base      = 0,  count = 8 (D0..D7 outputs / pindirs)
+;   sideset_base  = 16, count = 1 (DIR_DATA)
+;   jmp_pin       = 13  (/RD)
+;
+; Y register pre-loaded with shadow_base >> 6 (shadow must be 64-byte
+; aligned). Pointer compute via mov + in pins + in null:
+;   ISR = Y                     = shadow_base >> 6     (mov isr, y)
+;   ISR = (Y << 4) | addr                              (in pins, 4)
+;   ISR = (Y << 6) | (addr << 2) = shadow_base + addr*4 (in null, 2)
+;
+; Since shadow_base is 64-byte aligned, low 6 bits are 0, so OR-with-
+; shifted-addr is equivalent to addition.
+.program piconet_read
+.side_set 1
+.wrap_target
+    wait 0 pin 4      side 1   ; wait /CS LOW (GP12); DIR=1 idle
+    jmp pin done      side 1   ; jmp_pin = /RD; if HIGH this is a write
+    mov isr, y        side 1   ; ISR = shadow_base >> 6
+    in pins, 4        side 1   ; ISR = (Y << 4) | addr
+    in null, 2        side 1   ; ISR = shadow_base + addr*4 = &shadow[addr]
+    push              side 1   ; push pointer → DMA trigger reads it
+    pull              side 1   ; wait for shadow word (DMA fetch fills)
+    out pins, 8       side 1   ; load D0..D7 output reg (still high-Z)
+    mov osr, ~null    side 1   ; OSR = 0xFFFF_FFFF
+    out pindirs, 8    side 0   ; D0..D7 = outputs, DIR=0 (drive bus)
+    wait 1 pin 5      side 0   ; wait /RD HIGH
+    mov osr, null     side 1   ; OSR = 0
+    out pindirs, 8    side 1   ; release: D0..D7 = inputs, DIR=1
+done:
+    wait 1 pin 4      side 1   ; wait /CS HIGH (avoid re-trigger)
+.wrap
+
+; ----------------------------------------------------------------------
+; piconet_write — Z80/Z180 write cycles. Captures D0..D7 + A0..A3.
+;
+; Three-step sequence to handle both Z80 (where /IORQ + /WR fall
+; together) and Z180 (where /WR asserts noticeably later than /IORQ):
+;
+;   1. Trigger on /CS LOW. Required for correct timing of /OE → '245
+;      → bus-data-on-GP0..GP7. Triggering on /WR LOW (the obvious
+;      Z180 fix) breaks Z80 because /WR falls *before* /CS goes LOW,
+;      so /OE hasn't asserted and /245 isn't propagating yet → garbage.
+;   2. Dispatch on /RD via jmp_pin. /RD HIGH ⇒ write (capture path);
+;      /RD LOW ⇒ read (skip). /RD never asserts on writes on either
+;      CPU, so this is a reliable read/write discriminator.
+;   3. Wait for /WR LOW. On Z80 it's already LOW (no wait); on Z180
+;      this absorbs the /IORQ-to-/WR skew so we capture only after
+;      /WR has actually asserted and bus data is settled.
+;
+; Pin config: in_base = 0 (so `in pins, 12` captures GP0..GP11);
+;             jmp_pin = 13 (/RD).
+.program piconet_write
+.wrap_target
+    wait 0 pin 12               ; wait /CS LOW (lets /OE assert via SM_oe)
+    jmp pin do_write            ; jmp_pin = /RD; HIGH ⇒ write cycle
+    jmp skip                    ; LOW ⇒ read cycle, skip
+do_write:
+    ; Wait /WR LOW (no-op on Z80, real wait on Z180), then 3 cycles of
+    ; settling delay folded into the same instruction word via [3]. The
+    ; delay is load-bearing: SM_oe takes ~2-3 PIO cycles after /CS LOW
+    ; to drive /OE, U2 takes ~10 ns to propagate bus data, and the
+    ; input sync chain adds 2 more cycles. Without these cycles
+    ; `in pins` reads mid-transition values.
+    wait 0 pin 14 [3]
+    in pins, 12                 ; capture D0..D7 + A0..A3 → ISR
+    push                        ; push to RX FIFO
+skip:
+    wait 1 pin 12               ; wait /CS HIGH (cycle ends)
+.wrap
+
+; ----------------------------------------------------------------------
+; piconet_log — post-read notifier. Captures the register address AT
+; /CS LOW, waits for /RD HIGH (i.e. the Z80 has latched the response),
+; THEN pushes the addr to its RX FIFO. ARM polls this FIFO; seeing an
+; entry means "cycle complete, safe to pop ringbuf / refresh shadow
+; WITHOUT affecting the byte the Z80 just received."
+;
+; Pin config: in_base = 8 (so `wait pin 4` = /CS; `wait pin 5` = /RD;
+;             `in pins, 4` captures A0..A3); jmp_pin = 13 (/RD).
+.program piconet_log
+.wrap_target
+    wait 0 pin 4    ; wait /CS LOW
+    jmp pin skip    ; jmp_pin = /RD; if HIGH, this is a write — skip
+    in pins, 4      ; capture addr now (pins may change after /RD HIGH)
+    wait 1 pin 5    ; wait /RD HIGH — Z80 has latched the byte
+    push            ; notify ARM; safe to process post-read now
+skip:
+    wait 1 pin 4    ; wait /CS HIGH (don't re-trigger this cycle)
+.wrap
+
+% c-sdk {
+#include "hardware/clocks.h"
+#include "hardware/gpio.h"
+
+static inline void piconet_oe_program_init(PIO pio, uint sm, uint offset,
+                                           uint cs_pin, uint oe_pin) {
+    pio_sm_config c = piconet_oe_program_get_default_config(offset);
+    sm_config_set_in_pins(&c, cs_pin);
+    sm_config_set_sideset_pins(&c, oe_pin);
+    pio_gpio_init(pio, oe_pin);
+    gpio_set_drive_strength(oe_pin, GPIO_DRIVE_STRENGTH_12MA);
+    gpio_set_slew_rate(oe_pin, GPIO_SLEW_RATE_FAST);
+    pio_sm_set_consecutive_pindirs(pio, sm, oe_pin, 1, true);
+    pio_sm_set_consecutive_pindirs(pio, sm, cs_pin, 1, false);
+    pio_sm_init(pio, sm, offset, &c);
+    pio_sm_set_enabled(pio, sm, true);
+}
+
+// Initialise the read SM. Caller must pre-load Y with shadow_base >> 6
+// AFTER this returns (via the helper below). shadow_base must be
+// 64-byte aligned.
+static inline void piconet_read_program_init(PIO pio, uint sm, uint offset,
+                                             uint d0_pin, uint a0_pin,
+                                             uint cs_pin, uint rd_pin,
+                                             uint dir_pin,
+                                             uint32_t shadow_base) {
+    pio_sm_config c = piconet_read_program_get_default_config(offset);
+    sm_config_set_in_pins(&c, a0_pin);
+    sm_config_set_out_pins(&c, d0_pin, 8);
+    sm_config_set_sideset_pins(&c, dir_pin);
+    sm_config_set_jmp_pin(&c, rd_pin);
+
+    sm_config_set_out_shift(&c, /* shift_right */ true,  /* autopull */ false, 32);
+    sm_config_set_in_shift (&c, /* shift_right */ false, /* autopush */ false, 32);
+
+    for (uint i = 0; i < 8; i++) {
+        pio_gpio_init(pio, d0_pin + i);
+        gpio_set_drive_strength(d0_pin + i, GPIO_DRIVE_STRENGTH_12MA);
+        gpio_set_slew_rate(d0_pin + i, GPIO_SLEW_RATE_FAST);
+    }
+    pio_sm_set_consecutive_pindirs(pio, sm, d0_pin, 8, false);
+
+    pio_gpio_init(pio, dir_pin);
+    gpio_set_drive_strength(dir_pin, GPIO_DRIVE_STRENGTH_12MA);
+    gpio_set_slew_rate(dir_pin, GPIO_SLEW_RATE_FAST);
+    pio_sm_set_consecutive_pindirs(pio, sm, dir_pin, 1, true);
+
+    pio_sm_set_consecutive_pindirs(pio, sm, a0_pin, 4, false);
+    pio_sm_set_consecutive_pindirs(pio, sm, cs_pin, 1, false);
+
+    pio_sm_init(pio, sm, offset, &c);
+
+    // Pre-load Y = shadow_base >> 6 BEFORE enabling the SM. We push the
+    // value to the TX FIFO and use pio_sm_exec to pull it into OSR and
+    // mov to Y. After this dance the FIFOs are clean and the first
+    // real `pull` will block waiting for the DMA fetch to fill it.
+    pio_sm_put(pio, sm, shadow_base >> 6);
+    pio_sm_exec(pio, sm, pio_encode_pull(false, false));
+    pio_sm_exec(pio, sm, pio_encode_mov(pio_y, pio_osr));
+
+    pio_sm_set_enabled(pio, sm, true);
+}
+
+static inline void piconet_write_program_init(PIO pio, uint sm, uint offset,
+                                              uint d0_pin, uint rd_pin) {
+    pio_sm_config c = piconet_write_program_get_default_config(offset);
+    sm_config_set_in_pins(&c, d0_pin);
+    // jmp_pin = /RD — used to discriminate read vs write cycles after
+    // /CS LOW (see program comment above). /CS and /WR are referenced
+    // by the program directly via literal pin numbers (12 and 14).
+    sm_config_set_jmp_pin(&c, rd_pin);
+    sm_config_set_in_shift(&c, /* shift_right */ false, /* autopush */ false, 32);
+    pio_sm_init(pio, sm, offset, &c);
+    pio_sm_set_enabled(pio, sm, true);
+}
+
+static inline void piconet_log_program_init(PIO pio, uint sm, uint offset,
+                                            uint a0_pin, uint rd_pin) {
+    pio_sm_config c = piconet_log_program_get_default_config(offset);
+    sm_config_set_in_pins(&c, a0_pin);
+    sm_config_set_jmp_pin(&c, rd_pin);
+    sm_config_set_in_shift(&c, /* shift_right */ false, /* autopush */ false, 32);
+    pio_sm_init(pio, sm, offset, &c);
+    pio_sm_set_enabled(pio, sm, true);
+}
+%}

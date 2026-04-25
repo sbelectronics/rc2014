@@ -1,0 +1,12 @@
+// Local configuration overrides — credentials and anything else that
+// shouldn't be checked in. Copy this file to config_local.h and edit
+// in real values. config_local.h is git-ignored.
+
+#ifndef PICONET_CONFIG_LOCAL_H
+#define PICONET_CONFIG_LOCAL_H
+
+#define PICONET_WIFI_SSID       "YOUR-SSID-HERE"
+#define PICONET_WIFI_PASSWORD   "YOUR-PSK-HERE"
+#define PICONET_WIFI_AUTH       CYW43_AUTH_WPA2_AES_PSK
+
+#endif
