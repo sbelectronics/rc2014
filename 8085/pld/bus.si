@@ -1,0 +1,73 @@
+Name        bus ;
+PartNo      00 ;
+Date        01/01/1980 ;
+Revision    01 ;
+Designer    smbaker ;
+Company     sbsoftware ;
+Assembly    None ;
+Location    None ;
+Device      g16v8a ;
+
+/* ------------------------------------------------------------------ */
+/*  Simulator vectors for bus.pld                                      */
+/*                                                                     */
+/*  Values are LOGICAL states of the named signals.                    */
+/*  Pins declared !FOO invert at the package, so L/H in vectors        */
+/*  tracks the equation's positive-logic sense (FOO=1 -> H here).      */
+/* ------------------------------------------------------------------ */
+
+ORDER:  RESETI, IOnotM, S1, S0, RD, WR, INT, INTA, SOD,
+        %2, MREQ, IORQ, M1, RESETO, INTH, LEDHALT, LEDIO, LEDXTRA;
+
+VECTORS:
+
+$msg " R I S S R W I I S     M I M R I L L L";
+$msg " S O 1 0 D R N N O     R O 1 E N E E E";
+$msg " T n         T T D     E R   S T D D D";
+$msg " I M         A         Q Q   E H H I X";
+$msg "                             T   L L L";
+$msg "                             O   T I X";
+$msg "                                     T";
+$msg "-----------------------------------------";
+
+$msg "1: RESET active";
+   1 0 0 0 0 0 0 0 0    L L L H L L L L
+
+$msg "2: Opcode fetch   IOnotM=0 S1=1 S0=1 RD";
+   0 0 1 1 1 0 0 0 0    H L H L L L L L
+
+$msg "3: Memory read    IOnotM=0 S1=1 S0=0 RD";
+   0 0 1 0 1 0 0 0 0    H L L L L L L L
+
+$msg "4: Memory write   IOnotM=0 S1=0 S0=1 WR";
+   0 0 0 1 0 1 0 0 0    H L L L L L L L
+
+$msg "5: IO read        IOnotM=1 S1=1 S0=0 RD";
+   0 1 1 0 1 0 0 0 0    L H L L L L H L
+
+$msg "6: IO write       IOnotM=1 S1=0 S0=1 WR";
+   0 1 0 1 0 1 0 0 0    L H L L L L H L
+
+$msg "7: INTA           IOnotM=1 S1=1 S0=1 INTA";
+   0 1 1 1 0 0 0 1 0    L H H L L L L L
+
+$msg "8: HALT cycle     S1=S0=0 bus quiet  -- LEDHALT should latch";
+   0 0 0 0 0 0 0 0 0    L L L L L H L L
+
+$msg "9: HALT held      inputs unchanged   -- LEDHALT stays via feedback";
+   0 0 0 0 0 0 0 0 0    L L L L L H L L
+
+$msg "10: Interrupt pending during halt (INT asserted)";
+   0 0 0 0 0 0 1 0 0    L L L L H H L L
+
+$msg "11: Wake: first fetch after INT      -- LEDHALT clears on RD";
+   0 0 1 1 1 0 1 0 0    H L H L H L L L
+
+$msg "12: Another fetch, no halt           -- LEDHALT stays cleared";
+   0 0 1 1 1 0 0 0 0    H L H L L L L L
+
+$msg "13: SOD=1 drives LEDXTRA";
+   0 0 1 0 1 0 0 0 1    H L L L L L L H
+
+$msg "14: Reset re-asserted                -- everything to rest state";
+   1 0 0 0 0 0 0 0 0    L L L H L L L L

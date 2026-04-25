@@ -1,0 +1,54 @@
+name bus;
+device g16v8a;
+partno x;
+date 1/1/1980;
+designer smbaker;
+company sbsoftware;
+revision 1;
+assembly x;
+location x;
+
+PIN 1 = OSC;
+PIN 2 = S0;
+PIN 3 = S1; 
+PIN 4 = IOnotM;       /* IO/!M from 8085 */
+PIN 5 = !RD;         
+PIN 6 = !WR;
+PIN 7 = RESETI;       /* RESET from 8085 */
+PIN 8 = !INT;         /* INT from RC2014 bus */
+PIN 9 = !INTA;        /* INT Ack from 8085 */
+PIN 10 = GND;
+
+PIN 20 = VCC;
+PIN 19 = !M1;         /* m1 signal to RC2014 bus */
+PIN 18 = !MREQ;       /* MREQ to RC2014 bus */
+PIN 17 = !IORQ;       /* IORQ to RC2014 bus */
+PIN 16 = INTH;        /* INT signal to 8085 */
+PIN 15 = !RESETO;     /* RESET output to RC2014 bus */
+PIN 14 = !LEDXTRA;
+PIN 13 = !LEDHALT;    /* light this LED on halt */
+PIN 12 = !LEDIO;    /* light this LED on IORQ */
+PIN 11 = SOD;
+
+RESETO = RESETI;
+INTH = INT;
+
+MREQ = !IOnotM & (RD # WR);
+
+/* Widen IORQ and M1 during INTA to cover the full machine cycle
+   (S1=S0=1) rather than just the narrow 8085 !INTA pulse, so Z80
+   peripherals have time to arbitrate the daisy chain and drive
+   the interrupt vector. */
+IORQ = (IOnotM & (RD # WR)) # (IOnotM & S1 & S0);
+M1   = S1 & S0;
+
+LEDIO = IOnotM & (RD # WR);    /* IO read or write, not INTA */
+LEDXTRA = SOD;
+
+/* HALT latch: set on 8085 halt status (S1=S0=0) when bus is quiet and
+   not in reset; hold via self-feedback; cleared by RESETI or by RD/WR
+   going active (CPU resumed -- picked up on the first post-INTA fetch
+   or push when waking from an interrupt). RD/WR have pull-ups on the
+   RC2014 bus, so they stay inactive while the 8085 tri-states. */
+LEDHALT = (!S0 & !S1 & !RD & !WR & !RESETI)     /* set on halt status  */
+        # (LEDHALT & !RD & !WR & !RESETI);       /* hold while bus idle */
