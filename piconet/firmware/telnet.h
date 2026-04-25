@@ -47,17 +47,25 @@ typedef struct {
 // connected_cb, on connection close, and at sio_channel_reset.
 void telnet_init(telnet_state_t *t);
 
-// Force telnet into active mode and queue our initial negotiation
-// (WILL ECHO, WILL SGA, DO SGA, DONT LINEMODE). Use this when the
-// channel is dedicated to telnet clients — e.g. on accept of a new
-// connection — instead of waiting for the client to send IAC first.
-// Many telnet clients (incl. Ubuntu's inetutils-telnet) wait for the
-// server to drive negotiation, so passive-only mode deadlocks.
+// Force telnet into active mode and queue our initial negotiation.
+// Two flavours depending on which end of the connection we are.
 //
-// Trade-off: if a raw client (nc) connects, it will receive ~12 bytes
-// of IAC negotiation that the Z80 sees as garbage data. Acceptable
-// for channels intended for telnet use.
-void telnet_start_active(telnet_state_t *t);
+// SERVER (we accepted an inbound connection): queue WILL ECHO, WILL
+// SGA, DO SGA, DONT LINEMODE, WILL/DO BINARY. Used by the inbound
+// listener on accept_cb. Many telnet clients (incl. Ubuntu's
+// inetutils-telnet) wait for the server to drive negotiation, so
+// passive-only mode would deadlock.
+//
+// CLIENT (we dialed out, e.g. ATDT to a BBS): queue DO ECHO (server
+// echoes us), WILL/DO SGA, WILL/DO BINARY. Used by connected_cb when
+// the dial command was ATDT.
+//
+// Either way the trade-off is the same: a raw peer (nc on the listen
+// port; an unprepared raw service on the dial side) sees ~15 bytes of
+// IAC negotiation as garbage data. Acceptable for channels intended
+// for telnet use; ATDR exists to opt out on the outbound side.
+void telnet_start_active_server(telnet_state_t *t);
+void telnet_start_active_client(telnet_state_t *t);
 
 // Process one inbound byte (TCP → us). Returns true if `out` should
 // be pushed to the channel's RX ringbuf (data byte to deliver to Z80).

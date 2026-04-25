@@ -31,6 +31,11 @@
 // in normal operation.
 #define PICONET_TELNET_DEBUG        0
 
+// Set to 1 to log network/dial events (DNS resolution, TCP connect
+// outcomes, lwIP errors) over USB-CDC. Useful when ATD comes back as
+// NO CARRIER and you need to know why. Off by default in normal use.
+#define PICONET_NET_DEBUG           1
+
 // Pin map — locked by SCHEMATIC.md §4.7. Do not change without
 // changing hardware.
 #define PICONET_PIN_D0          0   // ..GP7 = D7

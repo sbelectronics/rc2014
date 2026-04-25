@@ -37,6 +37,21 @@ void hayes_init(hayes_t *h, sio_channel_t ch) {
     memset(h, 0, sizeof(*h));
     h->ch    = ch;
     h->state = HAYES_COMMAND;
+    h->echo  = true;        // ATE1 default — match traditional Hayes
+}
+
+static void set_last_error(hayes_t *h, const char *reason) {
+    if (!reason) reason = "unknown";
+    strncpy(h->last_error, reason, sizeof(h->last_error) - 1);
+    h->last_error[sizeof(h->last_error) - 1] = 0;
+}
+
+// Echo one TX byte back into the channel's RX ringbuf so it appears
+// on the user's terminal. Best-effort: drops if RX is full (which is
+// fine — echo is for human visibility, not for protocol correctness).
+static void echo_byte(sio_channel_t ch, uint8_t b) {
+    sio_channel_state_t *c = sio_channel(ch);
+    ringbuf_push(&c->rx, b);
 }
 
 bool hayes_in_data_mode(const hayes_t *h) {
@@ -81,22 +96,36 @@ static void exec_command(hayes_t *h, const char *line) {
     char c = (char)toupper((unsigned char)*p++);
     switch (c) {
         case 'D': {
+            // Dial command. Optional one-letter modifier selects the
+            // outbound protocol:
+            //   ATDT <host:port>  → telnet (IAC negotiation on connect)
+            //   ATDR <host:port>  → raw passthrough (no telnet)
+            //   ATD  <host:port>  → alias for ATDT (telnet is default)
+            // Bare ATD/ATDT/ATDR with no argument uses the build-time
+            // default host:port for this channel.
+            bool use_telnet = true;
+            if (*p == 'T' || *p == 't') {
+                use_telnet = true;
+                p++;
+            } else if (*p == 'R' || *p == 'r') {
+                use_telnet = false;
+                p++;
+            }
+
             char host[64];
             uint16_t port;
-            const char *rest = p;
             bool ok;
-            if (*rest == 0) {
-                // ATD with no argument — use build-time default.
+            if (*p == 0) {
                 strncpy(host, default_host(h->ch), sizeof(host));
                 host[sizeof(host) - 1] = 0;
                 port = default_port(h->ch);
                 ok = true;
             } else {
-                ok = parse_host_port(rest, host, sizeof(host), &port,
+                ok = parse_host_port(p, host, sizeof(host), &port,
                                      default_port(h->ch));
             }
             if (!ok) { push_response(h->ch, "ERROR"); return; }
-            if (!net_dial(h->ch, host, port)) {
+            if (!net_dial(h->ch, host, port, use_telnet)) {
                 push_response(h->ch, "ERROR");
                 return;
             }
@@ -124,10 +153,33 @@ static void exec_command(hayes_t *h, const char *line) {
             push_response(h->ch, "OK");
             return;
         }
+        case 'E':
+            // ATE0 = echo off, ATE1 = echo on, bare ATE = off (matches
+            // the Smartmodem 1200 default behaviour).
+            if (*p == 0 || *p == '0') {
+                h->echo = false;
+            } else if (*p == '1') {
+                h->echo = true;
+            } else {
+                push_response(h->ch, "ERROR");
+                return;
+            }
+            push_response(h->ch, "OK");
+            return;
+        case 'L':
+            // ATL — print last dial-failure reason then OK. Reason is
+            // populated by the network layer via hayes_on_dial_failed
+            // and cleared on a successful CONNECT.
+            if (*p != 0) { push_response(h->ch, "ERROR"); return; }
+            push_response(h->ch, h->last_error[0] ? h->last_error
+                                                  : "no error");
+            push_response(h->ch, "OK");
+            return;
         case 'Z':
             net_hangup(h->ch);
             h->state = HAYES_COMMAND;
             h->plus_count = 0;
+            h->last_error[0] = 0;
             push_response(h->ch, "OK");
             return;
         default:
@@ -196,7 +248,14 @@ bool hayes_on_tx_byte(hayes_t *h, uint8_t b) {
         case HAYES_COMMAND: {
             h->last_tx_time_ms = now;
             // Collect up to CR; ignore LFs. Treat BS/DEL as line edit.
+            // Echo each handled byte back if ATE1 is in effect (default).
             if (b == '\r') {
+                if (h->echo) {
+                    // CR → CR LF so the firmware response that follows
+                    // lands on its own line.
+                    echo_byte(h->ch, '\r');
+                    echo_byte(h->ch, '\n');
+                }
                 h->cmdline[h->cmdlen] = 0;
                 if (h->cmdlen > 0) {
                     exec_command(h, h->cmdline);
@@ -204,13 +263,22 @@ bool hayes_on_tx_byte(hayes_t *h, uint8_t b) {
                 h->cmdlen = 0;
                 return true;
             }
-            if (b == '\n') return true;
+            if (b == '\n') return true;     // never echo bare LF
             if (b == 0x08 || b == 0x7F) {
-                if (h->cmdlen > 0) h->cmdlen--;
+                if (h->cmdlen > 0) {
+                    h->cmdlen--;
+                    if (h->echo) {
+                        // BS SP BS — visually erase the previous char.
+                        echo_byte(h->ch, 0x08);
+                        echo_byte(h->ch, ' ');
+                        echo_byte(h->ch, 0x08);
+                    }
+                }
                 return true;
             }
             if (h->cmdlen < sizeof(h->cmdline) - 1) {
                 h->cmdline[h->cmdlen++] = (char)b;
+                if (h->echo) echo_byte(h->ch, b);
             }
             return true;
         }
@@ -256,17 +324,20 @@ void hayes_on_connect(hayes_t *h) {
     h->state = HAYES_DATA;
     h->last_tx_time_ms = to_ms_since_boot(get_absolute_time());
     h->plus_count = 0;
+    h->last_error[0] = 0;       // success — clear previous failure
 }
 
-void hayes_on_dial_failed(hayes_t *h) {
+void hayes_on_dial_failed(hayes_t *h, const char *reason) {
     if (h->state != HAYES_DIALING) return;
+    set_last_error(h, reason);
     push_response(h->ch, "NO CARRIER");
     h->state = HAYES_COMMAND;
     h->cmdlen = 0;
 }
 
-void hayes_on_remote_close(hayes_t *h) {
+void hayes_on_remote_close(hayes_t *h, const char *reason) {
     if (h->state != HAYES_DATA) return;
+    set_last_error(h, reason ? reason : "remote closed");
     push_response(h->ch, "NO CARRIER");
     h->state = HAYES_COMMAND;
     h->cmdlen = 0;

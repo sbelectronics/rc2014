@@ -84,24 +84,47 @@ static void queue_iac3(telnet_state_t *t, uint8_t verb, uint8_t opt) {
     log_out(verb, opt);
 }
 
-// On first detection of incoming IAC, send our initial negotiation:
-// WILL ECHO            — "we'll echo your input" → client turns off local echo
-// WILL SUPPRESS-GA     — no go-ahead from us
-// DO SUPPRESS-GA       — and we don't want it from client
-// DONT LINEMODE        — refuse line mode → forces character-at-a-time
+// Server-side initial negotiation: we're the server, the peer is a
+// telnet client. Tell the client to stop local echo (we'll echo for
+// them), force character-at-a-time mode, refuse line mode, and go
+// 8-bit clean. Standard telnet clients respond by switching the
+// local terminal to raw / no-local-echo mode.
 //
-// Standard telnet clients respond by switching the local terminal to
-// raw / no-local-echo mode. Combined with our IAC stripping in both
-// directions, the user gets a clean transparent pipe to the Z80.
-static void send_initial_negotiation(telnet_state_t *t) {
-    log_msg("sending initial negotiation");
+//   WILL ECHO            — "we'll echo your input" → client stops local echo
+//   WILL SUPPRESS-GA     — no go-ahead from us
+//   DO SUPPRESS-GA       — and we don't want it from client
+//   DONT LINEMODE        — refuse line mode → forces character mode
+//   WILL/DO BINARY (RFC 856) — 8-bit clean; no NVT line-ending
+//                              translation, bytes pass verbatim. Keeps
+//                              telnet byte-pure rather than silently
+//                              filtering CR-LF on receive.
+static void send_initial_negotiation_server(telnet_state_t *t) {
+    log_msg("sending server-side initial negotiation");
     queue_iac3(t, WILL, OPT_ECHO);
     queue_iac3(t, WILL, OPT_SUPPRESS_GA);
     queue_iac3(t, DO,   OPT_SUPPRESS_GA);
     queue_iac3(t, DONT, OPT_LINEMODE);
-    // BINARY (RFC 856): both sides go binary → no NVT line-ending
-    // translation, bytes pass verbatim. This is how we keep telnet
-    // byte-pure rather than silently filtering CR-LF on receive.
+    queue_iac3(t, WILL, OPT_BINARY);
+    queue_iac3(t, DO,   OPT_BINARY);
+}
+
+// Client-side initial negotiation: we're the client (e.g. dialing a
+// BBS). Polarity flips on ECHO — the SERVER echoes us, not the other
+// way around — so we send DO ECHO instead of WILL ECHO. SGA and
+// BINARY are symmetric.
+//
+//   DO ECHO              — server echoes our keystrokes
+//   WILL SUPPRESS-GA     — no go-ahead from us
+//   DO SUPPRESS-GA       — and we don't want it from server
+//   WILL/DO BINARY       — 8-bit clean (same rationale as server side)
+//
+// We do not volunteer LINEMODE — if the server insists, the passive
+// parser will refuse it.
+static void send_initial_negotiation_client(telnet_state_t *t) {
+    log_msg("sending client-side initial negotiation");
+    queue_iac3(t, DO,   OPT_ECHO);
+    queue_iac3(t, WILL, OPT_SUPPRESS_GA);
+    queue_iac3(t, DO,   OPT_SUPPRESS_GA);
     queue_iac3(t, WILL, OPT_BINARY);
     queue_iac3(t, DO,   OPT_BINARY);
 }
@@ -112,10 +135,16 @@ void telnet_init(telnet_state_t *t) {
     t->pending_tx_n  = 0;
 }
 
-void telnet_start_active(telnet_state_t *t) {
+void telnet_start_active_server(telnet_state_t *t) {
     if (t->active) return;
     t->active = true;
-    send_initial_negotiation(t);
+    send_initial_negotiation_server(t);
+}
+
+void telnet_start_active_client(telnet_state_t *t) {
+    if (t->active) return;
+    t->active = true;
+    send_initial_negotiation_client(t);
 }
 
 bool telnet_recv_byte(telnet_state_t *t, uint8_t b, uint8_t *out) {
@@ -123,11 +152,14 @@ bool telnet_recv_byte(telnet_state_t *t, uint8_t b, uint8_t *out) {
 
     case TS_NORMAL:
         if (b == IAC) {
-            // First-time detection: this is a telnet client. Switch on
-            // telnet processing and kick off our initial negotiation.
+            // First-time detection on a passive channel: peer is a
+            // telnet client. Switch on processing and send our server-
+            // side initial negotiation. (For outbound channels we
+            // pre-activate via telnet_start_active_client before any
+            // byte arrives, so this branch is only taken on inbound.)
             if (!t->active) {
                 t->active = true;
-                send_initial_negotiation(t);
+                send_initial_negotiation_server(t);
             }
             t->state = TS_SAW_IAC;
             return false;
@@ -159,8 +191,9 @@ bool telnet_recv_byte(telnet_state_t *t, uint8_t b, uint8_t *out) {
 
     case TS_OPT_DO:
         log_in(DO, b);
-        // Client wants US to enable option `b`.
-        // We agree only on options we actually support.
+        // Peer wants US to enable option `b`. Agree only on options
+        // we actually support — minimal set keeps the negotiation
+        // tractable and the byte stream clean.
         if (b == OPT_ECHO || b == OPT_SUPPRESS_GA || b == OPT_BINARY) {
             queue_iac3(t, WILL, b);
         } else {
@@ -171,19 +204,18 @@ bool telnet_recv_byte(telnet_state_t *t, uint8_t b, uint8_t *out) {
 
     case TS_OPT_DONT:
         log_in(DONT, b);
-        // Client tells us NOT to enable option `b`. Politely confirm.
+        // Peer tells us NOT to enable option `b`. Politely confirm.
         queue_iac3(t, WONT, b);
         t->state = TS_NORMAL;
         return false;
 
     case TS_OPT_WILL:
         log_in(WILL, b);
-        // Client offers to enable option `b` themselves. We accept
-        // SUPPRESS-GA (forces character mode) and BINARY (suppresses
-        // NVT line-ending translation, keeps bytes verbatim). Refuse
-        // everything else (no terminal-type, no NAWS, no env vars —
-        // keep it minimal).
-        if (b == OPT_SUPPRESS_GA || b == OPT_BINARY) {
+        // Peer offers to enable option `b`. Accept SUPPRESS-GA (forces
+        // character mode), BINARY (8-bit clean), and ECHO (so a server
+        // dialed via ATDT can echo our keystrokes). Refuse everything
+        // else (no terminal-type, no NAWS, no env vars — keep minimal).
+        if (b == OPT_SUPPRESS_GA || b == OPT_BINARY || b == OPT_ECHO) {
             queue_iac3(t, DO, b);
         } else {
             queue_iac3(t, DONT, b);
@@ -193,7 +225,7 @@ bool telnet_recv_byte(telnet_state_t *t, uint8_t b, uint8_t *out) {
 
     case TS_OPT_WONT:
         log_in(WONT, b);
-        // Client refuses option `b`. Politely confirm.
+        // Peer refuses option `b`. Politely confirm.
         queue_iac3(t, DONT, b);
         t->state = TS_NORMAL;
         return false;

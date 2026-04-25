@@ -14,7 +14,11 @@ void net_core0_main(void);
 // Outbound API used by the Hayes parser. Returns true if the dial
 // attempt was scheduled successfully (transitions channel to "dialing");
 // false if the parameters were invalid or another connection is open.
-bool net_dial(sio_channel_t ch, const char *host, uint16_t port);
+//
+// `use_telnet` selects between ATDT (telnet — IAC negotiation on
+// connect, IAC IAC escaping in both directions) and ATDR (raw — bytes
+// pass through verbatim). See PICONET.md §3.6.
+bool net_dial(sio_channel_t ch, const char *host, uint16_t port, bool use_telnet);
 
 // Drop the outbound TCP connection on `ch`, if any.
 void net_hangup(sio_channel_t ch);

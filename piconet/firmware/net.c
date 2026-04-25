@@ -15,6 +15,39 @@
 #include <stdio.h>
 #include <string.h>
 
+// USB-side debug logging for the dial path. Compiled out unless
+// PICONET_NET_DEBUG is non-zero in config.h.
+#if PICONET_NET_DEBUG
+#define NET_LOG(fmt, ...) printf("[net] " fmt "\n", ##__VA_ARGS__)
+#else
+#define NET_LOG(fmt, ...) ((void)0)
+#endif
+
+// lwIP err_t → short human-readable string. Used both for NET_LOG
+// output and to populate hayes->last_error for ATL retrieval.
+static const char *err_str(err_t e) {
+    switch (e) {
+        case ERR_OK:         return "ok";
+        case ERR_MEM:        return "out of memory";
+        case ERR_BUF:        return "buffer error";
+        case ERR_TIMEOUT:    return "timeout";
+        case ERR_RTE:        return "no route to host";
+        case ERR_INPROGRESS: return "in progress";
+        case ERR_VAL:        return "illegal value";
+        case ERR_WOULDBLOCK: return "would block";
+        case ERR_USE:        return "address in use";
+        case ERR_ALREADY:    return "already connecting";
+        case ERR_ISCONN:     return "already connected";
+        case ERR_CONN:       return "not connected";
+        case ERR_IF:         return "netif error";
+        case ERR_ABRT:       return "aborted";
+        case ERR_RST:        return "connection reset";
+        case ERR_CLSD:       return "connection closed";
+        case ERR_ARG:        return "illegal argument";
+        default:             return "unknown error";
+    }
+}
+
 typedef struct {
     sio_channel_t ch;
     bool          is_outbound;     // NET0/NET1 = true, UART0/UART1 = false
@@ -22,6 +55,11 @@ typedef struct {
     struct tcp_pcb *listen_pcb;    // for inbound channels only
     hayes_t       hayes;           // valid if is_outbound
     uint16_t      pending_port;    // set during DNS resolution
+    bool          pending_telnet;  // set by net_dial: true for ATDT, false for ATDR
+    // Whether telnet IAC processing is engaged on this channel. Always
+    // true for inbound (passive parser handles raw clients fine);
+    // pending_telnet flips it for each outbound dial.
+    bool          telnet_engaged;
 } net_chan_t;
 
 static net_chan_t chans[SIO_NUM_CHANNELS];
@@ -37,6 +75,17 @@ static bool  start_connect(net_chan_t *nc, const ip_addr_t *addr, uint16_t port)
 // ----- helpers --------------------------------------------------------
 
 static inline net_chan_t *chan_of(sio_channel_t ch) { return &chans[ch]; }
+
+// Encode one outbound byte into `out`, optionally through telnet's
+// IAC IAC escaping. Returns the number of bytes written (1 or 2).
+// Caller must guarantee `out` has space for at least 2 bytes.
+static inline size_t encode_out_byte(net_chan_t *nc, uint8_t b, uint8_t *out) {
+    if (nc->telnet_engaged) {
+        return telnet_send_byte(&sio_channel(nc->ch)->telnet, b, out);
+    }
+    out[0] = b;
+    return 1;
+}
 
 // Enable lwIP TCP keepalive on a connection. The Pico W's CYW43439
 // otherwise parks the radio in PM2 between beacons, and the first
@@ -61,6 +110,10 @@ static void close_pcb(net_chan_t *nc) {
     }
     nc->pcb = NULL;
     sio_channel(nc->ch)->connected = false;
+    // Telnet engagement is per-connection. Inbound channels re-engage
+    // on the next accept_cb; outbound channels re-engage on the next
+    // ATDT (or stay disengaged for ATDR).
+    nc->telnet_engaged = false;
 }
 
 // ----- LWIP callbacks -------------------------------------------------
@@ -70,8 +123,10 @@ static err_t recv_cb(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t err) 
     if (!nc) return ERR_OK;
 
     if (!p) {
-        // Remote closed.
-        if (nc->is_outbound) hayes_on_remote_close(&nc->hayes);
+        // Remote closed (lwIP signals graceful FIN with NULL pbuf).
+        NET_LOG("remote closed ch=%d", (int)nc->ch);
+        if (nc->is_outbound) hayes_on_remote_close(&nc->hayes,
+                                                   "remote closed");
         close_pcb(nc);
         return ERR_OK;
     }
@@ -89,13 +144,12 @@ static err_t recv_cb(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t err) 
         return ERR_MEM;
     }
 
-    // For inbound (UART) channels, run bytes through the telnet IAC
-    // parser. Telnet starts in passive mode — if the peer is `nc`
-    // (never sends IAC), the parser is effectively a passthrough.
-    // For outbound (NET) channels we keep raw bytes so the Hayes
-    // parser sees them verbatim.
+    // Route through the telnet IAC parser if telnet is engaged on this
+    // channel. Inbound channels are always engaged (passive parser
+    // handles raw `nc` clients as a no-op until they send IAC).
+    // Outbound channels are engaged for ATDT, bypassed for ATDR.
     struct pbuf *q;
-    if (!nc->is_outbound) {
+    if (nc->telnet_engaged) {
         for (q = p; q; q = q->next) {
             const uint8_t *src = (const uint8_t *)q->payload;
             for (u16_t i = 0; i < q->len; i++) {
@@ -121,14 +175,16 @@ static err_t recv_cb(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t err) 
 static void err_cb(void *arg, err_t err) {
     net_chan_t *nc = (net_chan_t *)arg;
     if (!nc) return;
+    NET_LOG("err_cb ch=%d err=%d (%s)", (int)nc->ch, (int)err, err_str(err));
     // pcb is already freed by lwIP at this point.
     nc->pcb = NULL;
     sio_channel(nc->ch)->connected = false;
+    nc->telnet_engaged = false;
     if (nc->is_outbound) {
         if (nc->hayes.state == HAYES_DIALING) {
-            hayes_on_dial_failed(&nc->hayes);
+            hayes_on_dial_failed(&nc->hayes, err_str(err));
         } else if (nc->hayes.state == HAYES_DATA) {
-            hayes_on_remote_close(&nc->hayes);
+            hayes_on_remote_close(&nc->hayes, err_str(err));
         }
     }
 }
@@ -150,11 +206,13 @@ static err_t accept_cb(void *arg, struct tcp_pcb *newpcb, err_t err) {
     enable_keepalive(newpcb);
     sio_channel(nc->ch)->connected = true;
     // Fresh telnet state per connection. Drive negotiation actively —
-    // many telnet clients (including Ubuntu's) wait for the server to
-    // initiate. Trade-off: nc clients see ~18 bytes of IAC garbage at
-    // start; acceptable for channels intended for telnet use.
+    // many telnet clients (incl. Ubuntu's inetutils-telnet) wait for
+    // the server to initiate. Trade-off: raw `nc` clients see ~18
+    // bytes of IAC garbage at start; acceptable for channels intended
+    // for telnet use.
+    nc->telnet_engaged = true;
     telnet_init(&sio_channel(nc->ch)->telnet);
-    telnet_start_active(&sio_channel(nc->ch)->telnet);
+    telnet_start_active_server(&sio_channel(nc->ch)->telnet);
 #if PICONET_TELNET_DEBUG
     printf("[telnet] accept on ch=%d, queued %u init bytes\n",
            nc->ch, sio_channel(nc->ch)->telnet.pending_tx_n);
@@ -163,39 +221,65 @@ static err_t accept_cb(void *arg, struct tcp_pcb *newpcb, err_t err) {
 }
 
 static err_t connected_cb(void *arg, struct tcp_pcb *pcb, err_t err) {
+    (void)pcb;
     net_chan_t *nc = (net_chan_t *)arg;
     if (err != ERR_OK) {
-        if (nc->is_outbound) hayes_on_dial_failed(&nc->hayes);
+        NET_LOG("connect FAILED ch=%d err=%d (%s)",
+                (int)nc->ch, (int)err, err_str(err));
+        if (nc->is_outbound) hayes_on_dial_failed(&nc->hayes, err_str(err));
         nc->pcb = NULL;
         sio_channel(nc->ch)->connected = false;
         return err;
     }
+    NET_LOG("connect OK ch=%d", (int)nc->ch);
     sio_channel(nc->ch)->connected = true;
+    // Engage client-side telnet now that the TCP handshake completed,
+    // if this dial requested it (ATDT). pending_telnet was set by
+    // net_dial. ATDR leaves telnet_engaged false → raw passthrough.
+    if (nc->is_outbound && nc->pending_telnet) {
+        nc->telnet_engaged = true;
+        telnet_init(&sio_channel(nc->ch)->telnet);
+        telnet_start_active_client(&sio_channel(nc->ch)->telnet);
+    }
     if (nc->is_outbound) hayes_on_connect(&nc->hayes);
     return ERR_OK;
 }
 
 static void dns_cb(const char *name, const ip_addr_t *ipaddr, void *arg) {
     net_chan_t *nc = (net_chan_t *)arg;
-    (void)name;
     if (!ipaddr) {
-        if (nc->is_outbound) hayes_on_dial_failed(&nc->hayes);
+        NET_LOG("dns FAILED name=%s", name ? name : "?");
+        if (nc->is_outbound) hayes_on_dial_failed(&nc->hayes,
+                                                  "DNS lookup failed");
         return;
     }
-    start_connect(nc, ipaddr, nc->pending_port);
+    NET_LOG("dns OK name=%s addr=%s", name ? name : "?",
+            ipaddr_ntoa(ipaddr));
+    if (!start_connect(nc, ipaddr, nc->pending_port)) {
+        // tcp_new() or tcp_connect() failed synchronously — without
+        // this branch the channel would sit in DIALING forever.
+        if (nc->is_outbound) hayes_on_dial_failed(&nc->hayes,
+                                                  "tcp_connect failed");
+    }
 }
 
 // ----- outbound helpers ----------------------------------------------
 
 static bool start_connect(net_chan_t *nc, const ip_addr_t *addr, uint16_t port) {
     nc->pcb = tcp_new();
-    if (!nc->pcb) return false;
+    if (!nc->pcb) {
+        NET_LOG("tcp_new FAILED ch=%d", (int)nc->ch);
+        return false;
+    }
     tcp_arg(nc->pcb, nc);
     tcp_recv(nc->pcb, recv_cb);
     tcp_err (nc->pcb, err_cb);
     enable_keepalive(nc->pcb);
+    NET_LOG("tcp_connect ch=%d to %s:%u", (int)nc->ch,
+            ipaddr_ntoa(addr), (unsigned)port);
     err_t err = tcp_connect(nc->pcb, addr, port, connected_cb);
     if (err != ERR_OK) {
+        NET_LOG("tcp_connect sync err=%d (%s)", (int)err, err_str(err));
         tcp_abort(nc->pcb);
         nc->pcb = NULL;
         return false;
@@ -205,22 +289,34 @@ static bool start_connect(net_chan_t *nc, const ip_addr_t *addr, uint16_t port) 
 
 // ----- public API ----------------------------------------------------
 
-bool net_dial(sio_channel_t ch, const char *host, uint16_t port) {
+bool net_dial(sio_channel_t ch, const char *host, uint16_t port, bool use_telnet) {
     if (ch != SIO_CH_NET0 && ch != SIO_CH_NET1) return false;
     net_chan_t *nc = chan_of(ch);
     if (nc->pcb) return false;
 
-    nc->pending_port = port;
-    ip_addr_t addr;
+    nc->pending_port   = port;
+    nc->pending_telnet = use_telnet;
+    // Engagement is set in connected_cb after TCP handshake. Force off
+    // here so that any race or stale value from a prior dial can't
+    // accidentally enable telnet processing for an ATDR dial.
+    nc->telnet_engaged = false;
 
+    NET_LOG("dial ch=%d host=%s port=%u %s",
+            (int)ch, host, (unsigned)port,
+            use_telnet ? "(telnet)" : "(raw)");
+
+    ip_addr_t addr;
     cyw43_arch_lwip_begin();
     err_t err = dns_gethostbyname(host, &addr, dns_cb, nc);
     bool result;
     if (err == ERR_OK) {
+        NET_LOG("dns cached addr=%s", ipaddr_ntoa(&addr));
         result = start_connect(nc, &addr, port);
     } else if (err == ERR_INPROGRESS) {
+        NET_LOG("dns lookup in progress for %s", host);
         result = true;     // dns_cb will call start_connect later
     } else {
+        NET_LOG("dns sync err=%d (%s)", (int)err, err_str(err));
         result = false;
     }
     cyw43_arch_lwip_end();
@@ -262,45 +358,68 @@ static void pump_tx(net_chan_t *nc) {
     // threadsafe_background mode) cannot race with any push_response
     // call hayes makes into the RX ringbuf.
     if (nc->is_outbound) {
-        uint8_t bytes_to_send[64];
-        size_t n_to_send = 0;
+        uint8_t buf[128];
+        size_t n = 0;
 
         cyw43_arch_lwip_begin();
 
-        // First, any bytes hayes queued earlier (e.g. from hayes_tick
-        // flushing pluses on guard timeout).
-        for (uint8_t i = 0; i < nc->hayes.pending_tx_n &&
-                            n_to_send < sizeof(bytes_to_send); i++) {
-            bytes_to_send[n_to_send++] = nc->hayes.pending_tx[i];
+        // 1. Telnet pending_tx (IAC negotiation responses, only
+        //    populated when telnet_engaged). Goes first so protocol
+        //    bytes precede data on the wire — peer applies negotiation
+        //    state before interpreting subsequent bytes. Never IAC-
+        //    escape these — they ARE IAC bytes.
+        if (nc->telnet_engaged) {
+#if PICONET_TELNET_DEBUG
+            if (s->telnet.pending_tx_n > 0) {
+                printf("[telnet] pump_tx (out) flushing %u IAC bytes (ch=%d)\n",
+                       s->telnet.pending_tx_n, nc->ch);
+            }
+#endif
+            for (uint8_t i = 0;
+                 i < s->telnet.pending_tx_n && n < sizeof(buf);
+                 i++) {
+                buf[n++] = s->telnet.pending_tx[i];
+            }
+            s->telnet.pending_tx_n = 0;
+        }
+
+        // 2. Hayes-queued bytes (e.g. flushed pluses from a timed-out
+        //    +++ sequence). These are user data — escape via telnet
+        //    when engaged.
+        for (uint8_t i = 0; i < nc->hayes.pending_tx_n && n + 2 <= sizeof(buf); i++) {
+            n += encode_out_byte(nc, nc->hayes.pending_tx[i], &buf[n]);
         }
         nc->hayes.pending_tx_n = 0;
 
+        // 3. Drain TX ringbuf — feed each byte through Hayes parser;
+        //    forward to the wire only if not consumed and we're in
+        //    DATA mode. Reserve 2 slots in buf for telnet escape worst
+        //    case (0xFF → IAC IAC).
         uint8_t b;
-        while (n_to_send < sizeof(bytes_to_send) && ringbuf_pop(&s->tx, &b)) {
+        while (n + 2 <= sizeof(buf) && ringbuf_pop(&s->tx, &b)) {
             bool consumed = hayes_on_tx_byte(&nc->hayes, b);
 
-            // Hayes may have just appended flushed pluses — those must
-            // be emitted BEFORE the current byte.
-            for (uint8_t i = 0; i < nc->hayes.pending_tx_n &&
-                                n_to_send < sizeof(bytes_to_send); i++) {
-                bytes_to_send[n_to_send++] = nc->hayes.pending_tx[i];
+            // Hayes may have just appended flushed pluses — emit them
+            // BEFORE the current byte.
+            for (uint8_t i = 0; i < nc->hayes.pending_tx_n && n + 2 <= sizeof(buf); i++) {
+                n += encode_out_byte(nc, nc->hayes.pending_tx[i], &buf[n]);
             }
             nc->hayes.pending_tx_n = 0;
 
-            if (!consumed && n_to_send < sizeof(bytes_to_send)) {
+            if (!consumed && n + 2 <= sizeof(buf)) {
                 if (nc->hayes.state == HAYES_DATA && nc->pcb) {
-                    bytes_to_send[n_to_send++] = b;
+                    n += encode_out_byte(nc, b, &buf[n]);
                 }
                 // Otherwise the byte is silently dropped (DIALING, or
                 // COMMAND mode non-AT byte — shouldn't happen in DATA).
             }
         }
 
-        if (n_to_send && nc->pcb) {
+        if (n && nc->pcb) {
             u16_t free_space = tcp_sndbuf(nc->pcb);
             if (free_space > 0) {
-                u16_t to_write = (n_to_send < free_space) ? (u16_t)n_to_send : free_space;
-                if (tcp_write(nc->pcb, bytes_to_send, to_write, TCP_WRITE_FLAG_COPY) == ERR_OK) {
+                u16_t to_write = (n < free_space) ? (u16_t)n : free_space;
+                if (tcp_write(nc->pcb, buf, to_write, TCP_WRITE_FLAG_COPY) == ERR_OK) {
                     tcp_output(nc->pcb);
                 }
             }

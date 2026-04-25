@@ -16,6 +16,10 @@ typedef struct {
     sio_channel_t  ch;
     hayes_state_t  state;
 
+    // ATE0 / ATE1 — local echo of typed characters in COMMAND mode.
+    // Default ATE1 (true). Has no effect in DATA or DIALING.
+    bool           echo;
+
     // +++ escape detector (only watched in DATA state).
     uint32_t       last_tx_time_ms;    // time of last non-plus TX byte
     uint32_t       plus_last_time_ms;  // time of most recent '+'
@@ -31,6 +35,11 @@ typedef struct {
     // AT command line buffer.
     char           cmdline[128];
     uint8_t        cmdlen;
+
+    // Last dial failure reason, populated by hayes_on_dial_failed /
+    // hayes_on_remote_close, cleared by hayes_on_connect. Queried via
+    // ATL. Empty string until the first failure.
+    char           last_error[64];
 } hayes_t;
 
 void hayes_init(hayes_t *h, sio_channel_t ch);
@@ -46,10 +55,12 @@ void hayes_tick(hayes_t *h, uint32_t now_ms);
 
 // Dial / connect / disconnect events from the network layer. These
 // produce CONNECT / NO CARRIER / etc. responses into the channel's RX
-// queue and update `state`.
+// queue and update `state`. `reason` (for failed/closed) is a short
+// human-readable string stored in `last_error` for ATL retrieval; pass
+// NULL for "unknown".
 void hayes_on_connect(hayes_t *h);
-void hayes_on_dial_failed(hayes_t *h);
-void hayes_on_remote_close(hayes_t *h);
+void hayes_on_dial_failed(hayes_t *h, const char *reason);
+void hayes_on_remote_close(hayes_t *h, const char *reason);
 
 // Returns true if the channel is currently in DATA mode (and therefore
 // TCP-bound bytes should flow normally). Used by the network layer to
