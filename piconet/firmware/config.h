@@ -1,8 +1,13 @@
 #ifndef PICONET_CONFIG_H
 #define PICONET_CONFIG_H
 
-// WiFi credentials live in config_local.h (git-ignored). Copy
-// config_local.h.example to config_local.h and edit in real values.
+// Build-time fallback for WiFi credentials. config_local.h is git-
+// ignored. Empty SSID/PSK strings are valid (force USB-CDC
+// provisioning on first boot); fill them in to bake credentials into
+// the firmware so a fresh board comes up on WiFi without manual
+// provisioning. The runtime source of truth is the persistent flash
+// config; config_local.h values are used only when flash hasn't been
+// provisioned yet.
 #include "config_local.h"
 
 #define PICONET_HOSTNAME        "piconet"

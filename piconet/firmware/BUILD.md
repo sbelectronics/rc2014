@@ -14,11 +14,15 @@ echo 'export PICO_SDK_PATH=$HOME/pico-sdk' >> ~/.bashrc
 source ~/.bashrc
 ```
 
-Copy `config_local.h.example` to `config_local.h` and edit in your
-real WiFi SSID and PSK. `config_local.h` is git-ignored so credentials
-never reach the repo. Other knobs (inbound listen ports, default ATD
-targets for NET0/NET1, etc.) live in `config.h` and can be edited in
-place.
+WiFi credentials are normally provisioned at runtime via the USB-CDC
+configuration menu (any keystroke on the CDC interface enters it),
+and persisted in flash. `config_local.h` (git-ignored) holds optional
+build-time fallback values used only when flash hasn't been
+provisioned yet — leave its SSID/PSK empty to require menu
+provisioning on first boot, or fill them in to bake credentials so a
+fresh board joins WiFi automatically. Other knobs (inbound listen
+ports, default ATD targets for NET0/NET1, etc.) live in `config.h`
+and can be edited in place.
 
 ## Build
 
