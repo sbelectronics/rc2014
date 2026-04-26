@@ -1,0 +1,30 @@
+# Local credentials and overrides — see firmware/config_local.h.example
+firmware/config_local.h
+firmware/config_scott.h
+
+# Build outputs
+build/
+firmware/build/
+*.o
+*.a
+*.elf
+*.elf.map
+*.bin
+*.hex
+*.uf2
+*.dis
+
+# Editor / IDE backups and metadata
+*~
+*.swp
+*.swo
+.DS_Store
+.vscode/
+.idea/
+__history/
+
+# CMake/Ninja artifacts that occasionally land outside build/
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+compile_commands.json

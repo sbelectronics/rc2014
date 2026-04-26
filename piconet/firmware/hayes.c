@@ -124,8 +124,21 @@ static void exec_command(hayes_t *h, const char *line) {
                 ok = parse_host_port(p, host, sizeof(host), &port,
                                      default_port(h->ch));
             }
-            if (!ok) { push_response(h->ch, "ERROR"); return; }
+            if (!ok) {
+                set_last_error(h, "bad host:port");
+                push_response(h->ch, "ERROR");
+                return;
+            }
+            // Refuse to dial if there's already a TCP session — most
+            // commonly because the user escaped DATA→COMMAND via +++
+            // without hanging up first.
+            if (net_is_connected(h->ch) || net_is_dialing(h->ch)) {
+                set_last_error(h, "already connected — ATH first");
+                push_response(h->ch, "ERROR");
+                return;
+            }
             if (!net_dial(h->ch, host, port, use_telnet)) {
+                set_last_error(h, "could not start dial");
                 push_response(h->ch, "ERROR");
                 return;
             }

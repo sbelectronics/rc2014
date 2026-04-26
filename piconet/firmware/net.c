@@ -143,10 +143,19 @@ static err_t recv_cb(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t err) 
 
     sio_channel_state_t *s = sio_channel(nc->ch);
 
+    // Outbound channels suppress data delivery to the Z80 while they
+    // aren't in DATA mode (e.g. user escaped via +++ and is now in
+    // COMMAND). Telnet IAC processing still runs so the server sees
+    // our negotiation responses, but the resulting data bytes are
+    // dropped — they'd otherwise interleave with AT response strings
+    // and confuse the user. ATO (or a fresh dial) returns to DATA
+    // and subsequent data flows normally.
+    bool deliver = !nc->is_outbound || nc->hayes.state == HAYES_DATA;
+
     // Worst case after telnet processing: every input byte is a data
     // byte that fits in the ringbuf. IAC sequences shrink the stream,
     // so the upper bound is p->tot_len.
-    if (ringbuf_free(&s->rx) < p->tot_len) {
+    if (deliver && ringbuf_free(&s->rx) < p->tot_len) {
         return ERR_MEM;
     }
 
@@ -160,12 +169,12 @@ static err_t recv_cb(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t err) 
             const uint8_t *src = (const uint8_t *)q->payload;
             for (u16_t i = 0; i < q->len; i++) {
                 uint8_t out;
-                if (telnet_recv_byte(&s->telnet, src[i], &out)) {
+                if (telnet_recv_byte(&s->telnet, src[i], &out) && deliver) {
                     ringbuf_push(&s->rx, out);
                 }
             }
         }
-    } else {
+    } else if (deliver) {
         for (q = p; q; q = q->next) {
             const uint8_t *src = (const uint8_t *)q->payload;
             for (u16_t i = 0; i < q->len; i++) {
